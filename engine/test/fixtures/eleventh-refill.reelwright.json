@@ -1,0 +1,361 @@
+{
+ "v": 2,
+ "id": "example",
+ "title": "The Eleventh Refill",
+ "createdAt": 1790323708644,
+ "updatedAt": 1790323708644,
+ "settings": {
+  "idea": "A night-shift pharmacist in Karachi notices a dead man's heart prescription is still being refilled every month.",
+  "format": "micro",
+  "units": 12,
+  "runtime": 90,
+  "genre": "Mystery",
+  "tone": "Tense and grounded",
+  "language": "English",
+  "storyInLang": false,
+  "setting": "Saddar, Karachi, present day",
+  "audience": "teen",
+  "narration": "auto",
+  "structure": "auto",
+  "length": "medium",
+  "comps": "",
+  "include": "",
+  "avoid": "",
+  "protagonist": "",
+  "source": "",
+  "notes": "",
+  "author": "",
+  "tier": "complex",
+  "video": "veo",
+  "clipMax": 8,
+  "aspect": "auto",
+  "audioInPrompt": true,
+  "workflow": "i2v",
+  "imageTool": "midjourney",
+  "imageSuffix": "--ar {ar} --style raw",
+  "promptLimit": ""
+ },
+ "pitches": null,
+ "story": {
+  "title": "The Eleventh Refill",
+  "logline": "A night-shift pharmacist in Karachi finds a dead man's heart pills are still being collected every month, and the trail leads to the one doctor she owes everything.",
+  "text": "Asma Qureshi kept the night ledger in pencil because Mr. Rizvi, who owned the shop and trusted nothing else, trusted pencil. Ink was for people who never made mistakes, he said. He had said it the day he hired her and at least twice a month since, usually while correcting her arithmetic.\n\nAt twenty to three on a Thursday the generator in the alley coughed, the tube light over the antibiotics went the color of weak tea, and a boy in a cricket jersey two sizes too big slid a prescription under the glass.\n\nAmlodipine, ten milligrams. Thirty tablets. Anwar Siddiqui.\n\nShe had filled it before. She flipped the ledger back one page, then four, then all the way to March, and the pencil stub in her hand started to feel like evidence. Eleven times. Same tablets, same signature at the bottom: Dr. Fareeha Naqvi, the one doctor in Saddar who had once found Asma's mother a bed at Civil when the ward boys were saying there were none.\n\nAnwar Siddiqui had been buried in March. Asma knew because his widow had come in the week after, still in white, holding an unopened box of insulin, and asked very politely whether the pharmacy gave refunds.\n\n\"Who's it for?\" Asma asked.\n\n\"My nana.\"\n\n\"And your nana's name?\"\n\nThe boy looked at the street, where a motorbike idled with its headlight off. He took the prescription back, folded it once, and walked out the way boys walk when someone has told them not to run.\n\nOn the counter he'd left exact change, the notes folded in thirds. Same as every month. On the back of the fifty, in blue ballpoint, someone had written a phone number.\n\n* * *\n\nShe did not call it that night. She did the stock count instead, and the stock count was wrong in a way it had been wrong for a year: amlodipine short by thirty, every month, balanced by a line in her own handwriting she didn't remember writing."
+ },
+ "storyBible": {
+  "tagline": "Every refill is a confession.",
+  "synopsis": "Asma Qureshi, a meticulous night-shift pharmacist in Saddar, notices that a dead man's heart medication has been collected every month since his funeral. The boy who brings the prescription leaves exact change and a phone number. The number belongs to Dr. Fareeha Naqvi, the doctor who once saved Asma's mother, and who has been writing prescriptions in dead patients' names to keep poor ones alive. The missing stock is covered by ledger lines in Asma's own handwriting. As Mr. Rizvi starts counting too, Asma has to decide whether to expose the person she owes everything to, or admit she chose a side months ago.",
+  "themes": [
+   "debt and gratitude",
+   "charity that needs a lie",
+   "who counts, and who gets counted"
+  ],
+  "world": "Saddar, Karachi, now. A 24-hour medical store on a street of shuttered wholesalers, running on a generator through the load-shedding. Prescriptions are paper, ledgers are pencil, and everyone knows which doctor will see you for free if you come after Isha.",
+  "motifs": [
+   "the pencil ledger",
+   "exact change folded in thirds",
+   "the flickering tube light"
+  ],
+  "characters": [
+   {
+    "id": "ASMA",
+    "name": "Asma Qureshi",
+    "age": "29",
+    "role": "Night-shift pharmacist; our lead",
+    "want": "To keep her job and her record clean",
+    "need": "To admit she has already chosen a side",
+    "wound": "Her mother nearly died waiting for a hospital bed",
+    "secret": "Some of the ledger lines covering the missing stock are in her handwriting",
+    "contradiction": "Exact with numbers, evasive about herself",
+    "arc": "From counting to choosing",
+    "voice": "Dry, precise, clipped. Switches to Urdu when cornered. Answers questions with questions."
+   },
+   {
+    "id": "BOY",
+    "name": "Bilal",
+    "age": "12",
+    "role": "Errand runner who brings the prescription",
+    "want": "His fifty rupees",
+    "need": "An adult who tells him the truth about what he carries",
+    "wound": "A father who left for Dubai and stopped calling",
+    "secret": "He knows exactly who the medicine is for",
+    "contradiction": "Street-tough, but folds every note neatly because his mother taught him to",
+    "arc": "From courier to witness",
+    "voice": "Short answers, cricket slang, never says a name."
+   },
+   {
+    "id": "DR. NAQVI",
+    "name": "Dr. Fareeha Naqvi",
+    "age": "58",
+    "role": "Beloved neighbourhood doctor",
+    "want": "To keep her poorest patients alive",
+    "need": "To stop making other people carry her risk",
+    "wound": "Thirty years of watching the public hospital turn people away",
+    "secret": "She writes prescriptions for the dead and sends the pills to the living",
+    "contradiction": "A healer who has grown comfortable lying",
+    "arc": "From hidden saint to exposed sinner, and maybe both",
+    "voice": "Warm, unhurried, formal English with Urdu courtesies; calls everyone \"beta\"; never raises her voice."
+   },
+   {
+    "id": "MR. RIZVI",
+    "name": "Iqbal Rizvi",
+    "age": "63",
+    "role": "Owner of the store",
+    "want": "For the numbers to match",
+    "need": "To see what his rules cost people",
+    "wound": "Lost his first shop to a partner who cooked the books",
+    "secret": "He noticed the shortage months ago and said nothing",
+    "contradiction": "Preaches honesty, lives on favors",
+    "arc": "From suspicious boss to quiet accomplice",
+    "voice": "Proverbs, arithmetic and complaints about the electricity. Repeats himself for emphasis."
+   }
+  ]
+ },
+ "outline": {
+  "title": "The Eleventh Refill",
+  "format": "micro",
+  "units": [
+   {
+    "id": "u1",
+    "label": "Episode 1",
+    "title": "Exact Change",
+    "summary": "A dead man's prescription is refilled on Asma's shift for the eleventh time. The boy who brings it slips away, leaving exact change and a phone number.",
+    "hook": "The tube light browns out as a hand slides a prescription under the glass.",
+    "ending": "A phone number written on the back of a fifty-rupee note.",
+    "scenes": [
+     {
+      "slug": "EXT. SADDAR - RIZVI MEDICAL STORE - NIGHT",
+      "beat": "The only lit shop on a shuttered street.",
+      "characters": []
+     },
+     {
+      "slug": "INT. RIZVI MEDICAL STORE - NIGHT",
+      "beat": "Asma recognises the name, checks the ledger and questions the boy; he leaves the money and slips away.",
+      "characters": [
+       "ASMA",
+       "BOY"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "u2",
+    "label": "Episode 2",
+    "title": "Pencil",
+    "summary": "The stock count has been quietly balanced for a year, in Asma's handwriting. Mr. Rizvi arrives early.",
+    "hook": "Asma erases a line in the ledger and finds another one underneath.",
+    "ending": "Mr. Rizvi picks up the fifty-rupee note.",
+    "scenes": [
+     {
+      "slug": "INT. RIZVI MEDICAL STORE - STOCKROOM - NIGHT",
+      "beat": "Asma counts boxes; the numbers only balance because of entries in her own hand.",
+      "characters": [
+       "ASMA"
+      ]
+     },
+     {
+      "slug": "INT. RIZVI MEDICAL STORE - DAWN",
+      "beat": "Rizvi arrives early, too cheerful, and sees the note before she can hide it.",
+      "characters": [
+       "ASMA",
+       "MR. RIZVI"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "u3",
+    "label": "Episode 3",
+    "title": "The Doctor Is In",
+    "summary": "Asma calls the number. Dr. Naqvi answers, and she already knows Asma's name.",
+    "hook": "The phone rings once before a woman says: \"Asma. I wondered when.\"",
+    "ending": "Dr. Naqvi asks Asma to fill one more prescription, this time in Asma's mother's name.",
+    "scenes": [
+     {
+      "slug": "EXT. ASMA'S BUILDING - ROOFTOP - DAY",
+      "beat": "Asma dials among drying laundry.",
+      "characters": [
+       "ASMA",
+       "DR. NAQVI"
+      ]
+     },
+     {
+      "slug": "INT. NAQVI CLINIC - DAY",
+      "beat": "A crowded waiting room; the doctor sees her at once, which is its own warning.",
+      "characters": [
+       "ASMA",
+       "DR. NAQVI"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "bible": {
+  "style": {
+   "aspect": "9:16",
+   "look": "Humid, sleepless Karachi: one lit shop in a dark city, where every face is lit by something failing.",
+   "camera": "35mm anamorphic look; close, mostly handheld coverage; locked-off frames for inserts",
+   "lighting": "Practical only: sodium streetlight outside, one cold flickering tube light inside",
+   "grade": "Low-contrast teal shadows, sodium-amber highlights, fine grain",
+   "palette": [
+    "#1E2A2F",
+    "#D9A441",
+    "#3F6E5A",
+    "#9E3B2E",
+    "#E7E2D6"
+   ],
+   "suffix": "Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain, shallow depth of field.",
+   "negative": "text overlays, subtitles, watermarks, extra fingers, glossy beauty lighting, western pharmacy chain branding, clean empty streets"
+  },
+  "characters": [
+   {
+    "id": "ASMA",
+    "name": "Asma Qureshi",
+    "role": "Night-shift pharmacist",
+    "lock": "Pakistani woman, 29, slim, oval face, warm medium-brown skin, dark tired eyes, thick straight eyebrows, small scar through left eyebrow, black hair in a low bun, maroon cotton dupatta pinned back with a black bulldog clip, white pharmacist coat over grey kurta",
+    "voice": "Late twenties, low and dry, Karachi English, clipped and fast when nervous",
+    "looks": [
+     {
+      "name": "Night shift",
+      "wardrobe": "White coat, maroon dupatta, bulldog clip"
+     },
+     {
+      "name": "Day off",
+      "wardrobe": "Faded mustard lawn kurta, no coat, hair loose"
+     }
+    ],
+    "sheet": "Character reference sheet of the same woman shown front, three-quarter and profile plus a full-body view, neutral grey studio background, even soft light: Pakistani woman, 29, slim, oval face, warm medium-brown skin, dark tired eyes, thick straight eyebrows, small scar through left eyebrow, black hair in a low bun, maroon cotton dupatta pinned back with a black bulldog clip, white pharmacist coat over grey kurta. 35mm film texture, fine grain."
+   },
+   {
+    "id": "BOY",
+    "name": "Bilal",
+    "role": "Errand runner",
+    "lock": "Pakistani boy, 12, thin, close-cropped black hair, chipped front tooth, faded oversized blue cricket jersey reaching his knees, rubber chappals",
+    "voice": "Twelve, hoarse, Karachi street Urdu-English, one-word answers",
+    "looks": [],
+    "sheet": "Character reference sheet of the same boy shown front, three-quarter and profile plus a full-body view, neutral grey studio background, even soft light: Pakistani boy, 12, thin, close-cropped black hair, chipped front tooth, faded oversized blue cricket jersey reaching his knees, rubber chappals. 35mm film texture, fine grain."
+   }
+  ],
+  "locations": [
+   {
+    "id": "PHARMACY",
+    "name": "Rizvi Medical Store",
+    "lock": "narrow 24-hour medical store, floor-to-ceiling glass-fronted shelves of medicine boxes, scratched glass counter with a slot, one flickering tube light, handwritten price labels, generator cable along the floor",
+    "sheet": "Establishing reference, no people: narrow 24-hour medical store in Karachi, floor-to-ceiling glass-fronted shelves of medicine boxes, scratched glass counter with a slot, one flickering tube light, handwritten price labels, generator cable along the floor. Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain."
+   }
+  ],
+  "props": [
+   {
+    "id": "LEDGER",
+    "name": "The night ledger",
+    "lock": "thick clothbound ledger with a faded green cover, pages of pencil columns, a pencil stub tucked in the spine"
+   },
+   {
+    "id": "NOTE",
+    "name": "The fifty",
+    "lock": "Pakistani fifty-rupee note folded in thirds, a phone number in blue ballpoint on the back"
+   }
+  ]
+ },
+ "units": {
+  "u1": {
+   "truncated": false,
+   "script": "# Episode 1: Exact Change\n\nEXT. SADDAR - RIZVI MEDICAL STORE - NIGHT\n\nA shuttered street. One shop still lit: RIZVI MEDICAL STORE - 24 HOURS. A generator thuds in the alley.\n\nINT. RIZVI MEDICAL STORE - NIGHT\n\nASMA QURESHI (29), dupatta pinned back with a black bulldog clip, writes in a ledger with a pencil stub worn to her fingertips.\n\nThe tube light browns out. Comes back.\n\nA hand slides a prescription under the glass. The BOY (12), in a faded cricket jersey that reaches his knees.\n\nASMA\n(not looking up)\nName?\n\nBOY\nIt's written.\n\nShe reads. Stops. Flips the ledger back a page. Four pages. All the way to March.\n\nINSERT - LEDGER\nThe same line, again and again: \"Anwar Siddiqui - Amlodipine 10mg.\"\n\nASMA\nWho is it for?\n\nBOY\nMy nana.\n\nASMA\nWhat's your nana's name?\n\nHis eyes go to the street. A motorbike idles there, headlight off.\n\nHe takes the prescription back. Folds it once. Walks out, carefully not running.\n\nASMA\nYour pills --\n\nOn the counter: exact change, folded in thirds.\n\nShe unfolds the fifty. On the back, in blue ballpoint, a phone number.\n\nSMASH TO BLACK.",
+   "shotsModel": "veo",
+   "shotsWorkflow": "i2v",
+   "shots": [
+    {
+     "id": "1.1",
+     "scene_no": 1,
+     "scene": "EXT. SADDAR - RIZVI MEDICAL STORE - NIGHT",
+     "duration": 4,
+     "shot": "WS",
+     "camera": "static, faint handheld drift",
+     "status": "clip",
+     "refs": [
+      "PHARMACY"
+     ],
+     "first_frame": "Wide shot at eye level. A shuttered Karachi market street at night with one lit shopfront: a narrow 24-hour medical store with floor-to-ceiling glass-fronted shelves of medicine boxes, a scratched glass counter with a slot, one flickering tube light, handwritten price labels, a generator cable along the floor. Sodium streetlight on a damp road. Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain, shallow depth of field.",
+     "prompt": "Static wide shot with a faint handheld drift. The shop\u2019s tube light flickers once; a stray dog crosses the frame and exits left. Generator thudding in the alley, distant traffic, one dog bark.",
+     "audio": "Generator thud, distant traffic, one dog bark."
+    },
+    {
+     "id": "2.1",
+     "scene_no": 2,
+     "scene": "INT. RIZVI MEDICAL STORE - NIGHT",
+     "duration": 5,
+     "shot": "MCU",
+     "camera": "slow push-in",
+     "status": "image",
+     "refs": [
+      "ASMA",
+      "PHARMACY",
+      "LEDGER"
+     ],
+     "first_frame": "Medium close-up at counter height. Pakistani woman, 29, slim, oval face, warm medium-brown skin, dark tired eyes, thick straight eyebrows, small scar through left eyebrow, black hair in a low bun, maroon cotton dupatta pinned back with a black bulldog clip, white pharmacist coat over grey kurta, bent over a thick clothbound ledger with a faded green cover, writing with a pencil stub. Behind her, glass-fronted shelves of medicine boxes under one tube light. Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain, shallow depth of field.",
+     "prompt": "Slow push-in. The pharmacist writes in the ledger with a tiny pencil stub. The tube light above her browns out; she pauses without looking up; the light returns and she keeps writing. Pencil scratch, an electrical buzz that dips and returns.",
+     "audio": "Pencil scratch; tube-light buzz dips and returns."
+    },
+    {
+     "id": "2.2",
+     "scene_no": 2,
+     "scene": "INT. RIZVI MEDICAL STORE - NIGHT",
+     "duration": 6,
+     "shot": "OTS",
+     "camera": "locked off through the glass",
+     "status": "todo",
+     "refs": [
+      "ASMA",
+      "BOY",
+      "PHARMACY"
+     ],
+     "first_frame": "Two-shot through a scratched glass counter at counter height. Foreground: Pakistani boy, 12, thin, close-cropped black hair, chipped front tooth, faded oversized blue cricket jersey reaching his knees, rubber chappals, pushing a folded prescription through the counter slot. Behind the glass: Pakistani woman, 29, oval face, warm medium-brown skin, small scar through left eyebrow, black hair in a low bun, maroon cotton dupatta pinned back with a black bulldog clip, white pharmacist coat over grey kurta, writing, not looking up. Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain, shallow depth of field.",
+     "prompt": "Locked off. The boy slides the prescription through the slot. Without looking up, the pharmacist says: \"Name?\" The boy, flat: \"It\u2019s written.\" She stops writing. No subtitles.",
+     "audio": "ASMA: \"Name?\" / BOY: \"It\u2019s written.\""
+    },
+    {
+     "id": "2.3",
+     "scene_no": 2,
+     "scene": "INT. RIZVI MEDICAL STORE - NIGHT",
+     "duration": 4,
+     "shot": "INSERT",
+     "camera": "top-down, locked",
+     "status": "todo",
+     "refs": [
+      "ASMA",
+      "LEDGER"
+     ],
+     "first_frame": "Top-down insert of a thick clothbound ledger with a faded green cover, pages of pencil columns, on a scratched glass counter; a woman\u2019s hands with a pencil callus; a black bulldog clip at the frame edge; a column of identical handwritten entries. Cold tube light. Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain, shallow depth of field.",
+     "prompt": "Top-down, locked. Her hands flip the pages back, faster and faster, the same handwritten line repeating down every column. The flipping speeds up, then stops dead.",
+     "audio": "Paper pages flipping, faster, then silence."
+    },
+    {
+     "id": "2.4",
+     "scene_no": 2,
+     "scene": "INT. RIZVI MEDICAL STORE - NIGHT",
+     "duration": 5,
+     "shot": "CU",
+     "camera": "slow tilt down",
+     "status": "todo",
+     "refs": [
+      "ASMA",
+      "NOTE"
+     ],
+     "first_frame": "Close-up on a scratched glass counter: Pakistani rupee notes folded in thirds under a cold tube light, a woman\u2019s hand entering frame from the top. Vertical 9:16, 35mm anamorphic look, sodium-vapor and cold tube light, humid night, fine grain, shallow depth of field.",
+     "prompt": "Slow tilt down. Her hand unfolds the fifty-rupee note and turns it over: a phone number in blue ballpoint. Outside, a motorbike pulls away. Silence, then a hard cut to black.",
+     "audio": "Motorbike pulls away outside. Silence. Hard cut."
+    }
+   ]
+  },
+  "u2": {
+   "truncated": false,
+   "script": "# Episode 2: Pencil\n\nINT. ASMA'S HOME - BEDROOM - DAWN\n\nA narrow room shared with a sewing machine. ASMA lies on top of the bedsheet in yesterday's kameez, the fifty-rupee note on her chest. The ceiling fan ticks. Her MOTHER coughs through the wall.\n\nShe turns the note over. The phone number. She reaches for her phone. Stops.\n\nINT. RIZVI MEDICAL STORE - STOCKROOM - NIGHT\n\nCartons to the ceiling. Asma counts amlodipine boxes with a pencil behind her ear.\n\nASMA\n(under her breath)\nTwenty-eight. Twenty-nine.\n\nShe checks the ledger. Thirty short. Then, under the shortfall, a correction in pencil. She knows the loops of those letters.\n\nASMA\nThat's my hand.\n\nShe erases it. Underneath, another line. Older.\n\nINT. RIZVI MEDICAL STORE - DAWN\n\nGrey light through the shutter. MR. RIZVI (63), in a pressed shalwar kameez and a cardigan in May, lets himself in two hours early, too cheerful.\n\nMR. RIZVI\nThe electricity came back at four. Four! I thought, God has forgiven Karachi, let me go and count something.\n\nASMA\nEverything's counted.\n\nMR. RIZVI\nEverything is always counted, beta. Counting is not the problem. The problem is adding.\n\nHe picks up the fifty-rupee note from the counter. Turns it over.\n\nINT. ASMA'S HOME - BEDROOM - DAY\n\nAsma sits on the bed and dials. It rings once.\n"
+  },
+  "u3": {
+   "truncated": false,
+   "script": "# Episode 3: The Doctor Is In\n\nINT. ASMA'S HOME - BEDROOM - DAY\n\nThe phone at her ear. Laundry shadows move across the wall.\n\nDR. NAQVI (V.O.)\nAsma. I wondered when.\n\nASMA\nYou know my name.\n\nDR. NAQVI (V.O.)\nI know your mother's blood pressure. Come to the clinic after Isha. Come hungry, I have too much biryani.\n\nINT. NAQVI CLINIC - NIGHT\n\nA waiting room with more patients than chairs. A ceiling fan, a calendar from a drug company, a framed degree going brown at the edges.\n\nDR. FAREEHA NAQVI (58), reading glasses on a beaded chain, waves Asma past the queue. Nobody complains, which is its own warning.\n\nINT. NAQVI CLINIC - OFFICE - NIGHT\n\nA desk with two chairs and a prescription pad. Dr. Naqvi pours tea.\n\nDR. NAQVI\nAnwar Siddiqui died in February. His wife did not. Her heart is not interested in paperwork.\n\nASMA\nSo you write it in his name.\n\nDR. NAQVI\nI write it in the name that gets it filled.\n\nShe tears off a fresh prescription and slides it across the desk.\n\nDR. NAQVI\nOne more. For your mother, this time. Then we are the same, you and I.\n\nAsma looks at the name on it. Her own mother's.\n\nINT. RIZVI MEDICAL STORE - NIGHT\n\nThe tube light browns out. Asma, alone, sets the prescription on the ledger and picks up the pencil.\n"
+  }
+ },
+ "storyVersions": [],
+ "example": true
+}

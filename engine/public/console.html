@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Studio Console</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--text:#e8eaf0;--mute:#8b93a7;--acc:#e0b24a;--ok:#4fb37a;--warn:#e0913a;--bad:#e05a5a;--blue:#5a8fe0}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;flex-wrap:wrap}
+header h1{font-size:15px;margin:0 12px 0 0;letter-spacing:.02em}header h1 b{color:var(--acc)}
+main{padding:16px 18px;max-width:1400px;margin:0 auto}
+button{background:#232838;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:6px 11px;font:inherit;cursor:pointer}
+button:hover{border-color:#3a4254}button.pri{background:var(--acc);color:#1a1405;border-color:var(--acc);font-weight:600}
+button.ok{background:#1f3a2a;border-color:#2e5a3f}button.bad{background:#3a1f22;border-color:#5a2e33}button:disabled{opacity:.45;cursor:default}
+input,textarea,select{background:#10131a;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font:inherit}
+textarea{width:100%;min-height:70px;resize:vertical}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.grow{flex:1}.mute{color:var(--mute)}.small{font-size:12px}
+.tabs{display:flex;gap:4px;margin:12px 0 16px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 12px;color:var(--mute)}
+.tabs button.on{color:var(--text);border-bottom-color:var(--acc)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.thumb{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:7px;background:#0b0d11;display:block}
+.thumb.wide{aspect-ratio:16/9}video{width:100%;border-radius:7px;background:#000;aspect-ratio:var(--ar,9/16);max-height:420px;object-fit:contain;display:block}
+a{color:var(--acc)}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--mute)}
+.s-approved{color:var(--ok);border-color:#2e5a3f}.s-review{color:var(--acc);border-color:#5a4a22}.s-failed,.s-blocked{color:var(--bad);border-color:#5a2e33}
+.s-generating,.s-rendering,.s-queued,.s-running{color:var(--blue);border-color:#2e3f5a}
+h2{font-size:15px;margin:18px 0 10px}h3{font-size:13px;margin:0 0 6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+pre{white-space:pre-wrap;background:#0b0d11;border:1px solid var(--line);border-radius:7px;padding:8px;font-size:12px;max-height:260px;overflow:auto}
+.jobs{font-size:12px;color:var(--mute)}.err{color:var(--bad);font-size:12px}
+details summary{cursor:pointer;color:var(--mute);font-size:12px}
+.toast{position:fixed;bottom:16px;right:16px;background:#232838;border:1px solid var(--line);padding:10px 14px;border-radius:8px;max-width:420px;z-index:9}
+@media (max-width:640px){main{padding:12px}.shots{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Studio <b>Console</b></h1>
+  <input id="tok" class="grow" placeholder="Access token: a Supabase JWT, or dev:&lt;uuid&gt; in local dev" style="max-width:520px">
+  <button onclick="saveTok()">Use token</button>
+  <span id="spend" class="mute small"></span>
+</header>
+<main id="app"><p class="mute">Paste an access token to begin.</p></main>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let TOKEN = localStorage.getItem('studio_token') || '';
+let state = { pid: null, tab: 'assets', ep: null };
+$('#tok').value = TOKEN;
+function saveTok() { TOKEN = $('#tok').value.trim(); localStorage.setItem('studio_token', TOKEN); home(); }
+function toast(m) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 4500); }
+async function api(method, path, body, form) {
+  const r = await fetch('/v1' + path, { method, headers: { authorization: 'Bearer ' + TOKEN, ...(form ? {} : { 'content-type': 'application/json' }) }, body: form || (body ? JSON.stringify(body) : undefined) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error?.message || r.status); throw j; }
+  return j;
+}
+const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
+
+// ───────── projects ─────────
+async function home() {
+  state.pid = null;
+  const { projects } = await api('GET', '/projects');
+  $('#app').innerHTML = `
+    <div class="row"><h2 class="grow">Projects</h2>
+      <label class="row small"><input type="file" id="imp" accept=".json" style="max-width:240px"> <button class="pri" onclick="importFile()">Import Reelwright project</button></label></div>
+    <div class="grid">${projects.map((p) => `<div class="card" style="cursor:pointer" onclick="openProject('${p.id}')">
+      <h3>${esc(p.title)}</h3><div class="row small mute">${esc(p.format)} · ${esc(p.aspect)} · ${p.episodes} ep</div><div style="margin-top:6px">${pill(p.status)}</div></div>`).join('') || '<p class="mute">No projects yet. Export a project backup (.json) from Reelwright and import it here.</p>'}</div>`;
+}
+async function importFile() {
+  const f = $('#imp').files[0]; if (!f) return toast('Choose a .json file first');
+  const { project } = await api('POST', '/projects', JSON.parse(await f.text()));
+  toast('Imported. Breaking down the script…'); openProject(project.id);
+}
+
+// ───────── project view ─────────
+let poll = null;
+async function openProject(id) { state.pid = id; state.ep = null; await renderProject(); clearInterval(poll); poll = setInterval(() => state.pid && refresh(), 4000); }
+let lastSig = '';
+async function refresh() {
+  const d = await api('GET', `/projects/${state.pid}`);
+  const sig = JSON.stringify([d.project.updated_at, d.jobs.map((j) => j.id + j.status + j.progress), d.asset_counts, d.episodes]);
+  renderJobs(d);
+  if (sig !== lastSig) { lastSig = sig; await renderBody(d); }
+}
+async function renderProject() {
+  const d = await api('GET', `/projects/${state.pid}`);
+  lastSig = '';
+  document.documentElement.style.setProperty('--ar', d.project.aspect.replace(':', '/'));
+  $('#app').innerHTML = `
+    <div class="row"><button onclick="home()">← Projects</button><h2 class="grow" style="margin:0 8px">${esc(d.project.title)}</h2>
+      <select id="res" onchange="patchProject({resolution:this.value})"><option ${d.project.resolution === '768P' ? 'selected' : ''}>768P</option><option ${d.project.resolution === '2K' ? 'selected' : ''}>2K</option></select>
+      <button onclick="estimate()">Cost estimate</button></div>
+    <div id="jobs" class="jobs"></div>
+    <div class="tabs">${['assets', 'scenes', 'episodes'].map((t) => `<button class="${state.tab === t ? 'on' : ''}" onclick="state.tab='${t}';renderProject()">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+    <div id="body"></div>`;
+  renderJobs(d); await renderBody(d);
+}
+function renderJobs(d) {
+  $('#spend').textContent = `Spent $${(d.spend?.total_usd || 0).toFixed(2)}`;
+  const act = d.jobs.filter((j) => j.status !== 'failed');
+  const fail = d.jobs.filter((j) => j.status === 'failed').slice(0, 3);
+  $('#jobs').innerHTML = (act.length ? `⏳ ${act.length} running: ${act.slice(0, 4).map((j) => esc(j.kind + (j.progress ? ' — ' + j.progress : ''))).join(' · ')}` : '') +
+    fail.map((j) => `<div class="err">✕ ${esc(j.kind)}: ${esc(j.error)}</div>`).join('');
+}
+async function patchProject(b) { await api('PATCH', `/projects/${state.pid}`, b); toast('Saved'); }
+async function estimate() {
+  const e = await api('GET', `/projects/${state.pid}/estimate`);
+  toast(`${e.runtime_seconds}s of screen time at ${e.resolution}: $${e.video_full_runtime_once_usd} once through; about $${(e.video_full_runtime_once_usd * 1.8).toFixed(2)} with typical retakes. Left to approve: $${e.video_if_every_shot_works_first_time_usd}.`);
+}
+async function renderBody(d) {
+  const b = $('#body'); if (!b) return;
+  if (state.tab === 'assets') return renderAssets(b);
+  if (state.tab === 'scenes') return renderScenes(b);
+  if (state.tab === 'episodes') return state.ep ? renderShots(b) : renderEpisodes(b, d);
+}
+
+// ───────── assets ─────────
+const KINDS = [['character', 'Characters'], ['look', 'Wardrobe'], ['voice', 'Voices'], ['location', 'Sets'], ['set_variant', 'Set variants'], ['prop', 'Props']];
+async function renderAssets(b) {
+  const { assets } = await api('GET', `/projects/${state.pid}/assets`);
+  const live = assets.filter((a) => !a.meta?.unused);
+  const need = live.filter((a) => a.status === 'planned' || a.status === 'failed').length;
+  const rev = live.filter((a) => a.status === 'review').length;
+  b.innerHTML = `<div class="row"><span class="grow mute">${live.length} locked references · ${live.filter((a) => a.status === 'approved').length} approved · ${rev} to review</span>
+    <button class="pri" ${need ? '' : 'disabled'} onclick="api('POST','/projects/${state.pid}/assets/generate',{}).then(()=>toast('Generating ${need} assets'))">Generate ${need} missing</button>
+    <button class="ok" ${rev ? '' : 'disabled'} onclick="api('POST','/projects/${state.pid}/assets/approve-all').then(refresh)">Approve all in review</button></div>` +
+    KINDS.map(([k, label]) => {
+      const xs = live.filter((a) => a.kind === k); if (!xs.length) return '';
+      return `<h2>${label}</h2><div class="grid">${xs.map(assetCard).join('')}</div>`;
+    }).join('');
+}
+function assetCard(a) {
+  const media = !a.url ? `<div class="thumb ${a.kind.includes('location') || a.kind === 'set_variant' ? 'wide' : ''}" style="display:grid;place-items:center;color:#555">${a.status === 'generating' ? 'generating…' : 'no file yet'}</div>`
+    : a.kind === 'voice' ? `<audio controls src="${esc(a.url)}" style="width:100%"></audio>`
+    : `<a href="${esc(a.url)}" target="_blank"><img class="thumb ${a.kind === 'location' || a.kind === 'set_variant' ? 'wide' : ''}" src="${esc(a.url)}" loading="lazy"></a>`;
+  return `<div class="card">${media}
+    <div class="row" style="margin-top:8px"><b class="grow small">${esc(a.name || a.key)}</b>${pill(a.status)}</div>
+    <div class="small mute">${a.recurring ? '★ recurring · ' : ''}${a.appearances} scene${a.appearances === 1 ? '' : 's'}${a.meta?.is_minor ? ' · minor' : ''}</div>
+    ${a.error ? `<div class="err">${esc(a.error)}</div>` : ''}
+    <details><summary>Description</summary><textarea id="d-${a.id}">${esc(a.description)}</textarea>
+      <div class="row"><button onclick="saveDesc('${a.id}')">Save</button>
+      <label class="small mute row"><input type="file" id="u-${a.id}" style="max-width:150px"> <button onclick="upload('${a.id}','${a.kind}')">Upload</button></label></div></details>
+    <div class="row" style="margin-top:8px">
+      ${a.status === 'approved' ? `<button onclick="api('POST','/assets/${a.id}/unapprove').then(refresh)">Unlock</button>` : `<button class="ok" ${a.url ? '' : 'disabled'} onclick="api('POST','/assets/${a.id}/approve').then(refresh)">Approve</button>`}
+      <button onclick="regen('${a.id}')">${a.url ? 'Regenerate…' : 'Generate'}</button>
+      ${a.history_count ? `<span class="small mute">${a.history_count} older</span>` : ''}</div></div>`;
+}
+async function saveDesc(id) { await api('PATCH', `/assets/${id}`, { description: $('#d-' + id).value }); toast('Saved. Regenerate to update the image.'); }
+async function regen(id) { const note = prompt('What should change? (leave empty to just try again)') ?? null; if (note === null) return; await api('POST', `/assets/${id}/generate`, { note }); toast('Regenerating'); }
+async function upload(id, kind) {
+  const f = $('#u-' + id).files[0]; if (!f) return toast('Choose a file');
+  const person = ['character', 'look', 'voice'].includes(kind);
+  if (person && !confirm('Do you have this person\'s permission to use their face or voice?')) return;
+  const fd = new FormData(); fd.append('file', f); fd.append('consent', person ? 'true' : 'false');
+  await api('POST', `/assets/${id}/upload`, null, fd); refresh();
+}
+
+// ───────── scenes ─────────
+async function renderScenes(b) {
+  const { scenes } = await api('GET', `/projects/${state.pid}/scenes`);
+  b.innerHTML = `<div class="card"><table style="width:100%;border-collapse:collapse;font-size:13px">
+    <tr class="mute" style="text-align:left"><th>Ep</th><th>#</th><th>Heading</th><th>Set used</th><th>Characters</th><th>Props</th><th>~s</th></tr>
+    ${scenes.map((s) => `<tr style="border-top:1px solid var(--line)"><td>${s.episode}</td><td>${s.idx}</td><td>${esc(s.heading)}</td><td>${esc(s.location_name || '—')}</td><td>${esc(s.characters.join(', '))}</td><td>${esc(s.props.join(', '))}</td><td>${s.est_seconds}</td></tr>`).join('')}</table></div>`;
+}
+
+// ───────── episodes & shots ─────────
+function renderEpisodes(b, d) {
+  b.innerHTML = `<div class="grid">${d.episodes.map((e) => `<div class="card"><h3>${esc(e.label)} ${e.title ? '· ' + esc(e.title) : ''}</h3>
+    <div class="small mute">${e.scenes} scenes · ${e.shots} shots · ${e.seconds}s · ${e.approved}/${e.shots} approved</div>
+    <div style="margin:6px 0">${pill(e.status)}</div>
+    <div class="row"><button class="${e.shots ? '' : 'pri'}" onclick="plan('${e.id}',${e.shots > 0})">${e.shots ? 'Re-plan' : 'Plan shots'}</button>
+    <button ${e.shots ? '' : 'disabled'} onclick="state.ep='${e.id}';renderProject()">Open shot board →</button></div></div>`).join('')}</div>`;
+}
+async function plan(id, again) {
+  if (again && !confirm('Re-planning discards this episode\'s shots and takes. Continue?')) return;
+  await api('POST', `/episodes/${id}/plan`, { force: again }); toast('Planning shots…');
+}
+async function renderShots(b) {
+  const [{ shots, totals }, { cuts }] = await Promise.all([api('GET', `/episodes/${state.ep}/shots`), api('GET', `/episodes/${state.ep}/cuts`)]);
+  const unrendered = shots.filter((s) => s.status === 'planned' || s.status === 'failed').length;
+  const allOk = totals.approved === totals.shots && totals.shots > 0;
+  b.innerHTML = `<div class="row"><button onclick="state.ep=null;renderProject()">← Episodes</button>
+    <span class="grow mute">${totals.approved}/${totals.shots} approved · ${totals.seconds}s</span>
+    <button class="pri" ${unrendered ? '' : 'disabled'} onclick="api('POST','/episodes/${state.ep}/render',{}).then(()=>toast('Rendering ${unrendered} shots'))">Render ${unrendered} shots</button>
+    <button onclick="cut('preview')">Preview cut</button>
+    <button class="ok" ${allOk ? '' : 'disabled'} title="${allOk ? '' : 'Approve every shot first'}" onclick="cut('final')">Final cut</button></div>
+    ${cuts.length ? `<h2>Cuts</h2><div class="shots">${cuts.slice(0, 3).map((c) => `<div class="card">${c.url ? `<video controls preload="metadata" poster="${esc(c.thumb_url || '')}" src="${esc(c.url)}"></video>` : ''}
+      <div class="row small" style="margin-top:6px"><b class="grow">${esc(c.kind)}</b>${pill(c.status)}${c.url ? `<a href="${esc(c.url)}" download>MP4</a> <a href="${esc(c.srt_url)}" download>SRT</a>` : ''}</div>${c.error ? `<div class="err">${esc(c.error)}</div>` : ''}</div>`).join('')}</div>` : ''}
+    <h2>Shots</h2><div class="shots">${shots.map(shotCard).join('')}</div>`;
+}
+function shotCard(s) {
+  const good = s.takes.filter((t) => t.status === 'succeeded');
+  const show = s.takes.find((t) => t.id === s.approved_take_id) || good[good.length - 1];
+  const last = s.takes[s.takes.length - 1];
+  const dia = s.plan.beats.flatMap((b) => (b.dialogue || []).map((d) => `${d.who}: ${d.line}`));
+  return `<div class="card">
+    ${show ? `<video controls preload="metadata" poster="${esc(show.thumb_url || '')}" src="${esc(show.url)}"></video>` : `<div class="thumb wide" style="display:grid;place-items:center;color:#555">${s.status === 'rendering' || s.status === 'queued' ? 'rendering…' : 'not rendered'}</div>`}
+    <div class="row" style="margin-top:8px"><b class="grow">Shot ${esc(s.code)} · ${s.duration}s</b>${pill(s.status)}</div>
+    <div class="small mute">${esc(s.plan.purpose || '')} · take ${show ? show.n : '—'} of ${s.takes.length} · ~$${s.estimate_usd}</div>
+    ${dia.length ? `<div class="small" style="margin-top:4px">${dia.map(esc).join('<br>')}</div>` : ''}
+    ${last && last.status === 'failed' ? `<div class="err">Take ${last.n}: ${esc(last.error)}</div>` : ''}
+    ${show?.media?.problems?.length ? `<div class="err">Check: ${esc(show.media.problems.join('; '))}</div>` : ''}
+    <details><summary>H3 prompt${s.prompt_locked ? ' (edited by hand)' : ''}</summary><textarea id="p-${s.id}" style="min-height:180px">${esc(s.prompt)}</textarea>
+      <button onclick="retakePrompt('${s.id}')">Render with this prompt</button></details>
+    <div class="row" style="margin-top:8px">
+      ${s.status === 'approved' ? `<button onclick="api('POST','/shots/${s.id}/unapprove').then(refresh)">Unapprove</button>` : `<button class="ok" ${show ? '' : 'disabled'} onclick="api('POST','/takes/${show?.id}/approve').then(refresh)">Approve</button>`}
+      <button ${s.status === 'rendering' || s.status === 'queued' ? 'disabled' : ''} onclick="retake('${s.id}')">Retake…</button>
+      ${good.length > 1 ? `<select onchange="this.value&&api('POST','/takes/'+this.value+'/approve').then(refresh)"><option value="">Pick another take</option>${good.map((t) => `<option value="${t.id}">Take ${t.n}</option>`).join('')}</select>` : ''}</div></div>`;
+}
+async function retake(id) { const note = prompt('Director\'s note for the retake (e.g. "hold on her face longer", "he should not smile")'); if (note === null) return; await api('POST', `/shots/${id}/retake`, { note }); toast('Retake queued'); refresh(); }
+async function retakePrompt(id) { await api('POST', `/shots/${id}/retake`, { prompt: $('#p-' + id).value }); toast('Rendering with your prompt'); }
+async function cut(kind) { await api('POST', `/episodes/${state.ep}/cuts`, { kind, options: { burn_subtitles: true } }); toast(kind === 'final' ? 'Assembling the final cut…' : 'Assembling a preview…'); }
+
+if (TOKEN) home().catch(() => {});
+</script>
+</body>
+</html>

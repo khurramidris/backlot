@@ -1,0 +1,24 @@
+# Old pre-monorepo folders (archived as bundles in ../backlot-archive); removed after the move
+/studio-engine/
+/scene-scribe-studio-91/
+
+# Secrets: never commit env files (documented values live in docs/DEPLOY.md and engine/env.sample)
+.env
+.env.*
+!env.sample
+
+node_modules/
+dist/
+.output/
+.tanstack/
+.wrangler/
+data/
+*.log
+*.stackdump
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,35 @@
+{
+  "refs": [
+    {
+      "role": "reference_image",
+      "asset": "RIZVI_MEDICAL_STORE/NIGHT"
+    },
+    {
+      "role": "reference_image",
+      "asset": "ASMA"
+    },
+    {
+      "role": "reference_image",
+      "asset": "BOY"
+    },
+    {
+      "role": "reference_image",
+      "asset": "ASMA/DEFAULT"
+    },
+    {
+      "role": "reference_image",
+      "asset": "BOY/DEFAULT"
+    },
+    {
+      "role": "reference_image",
+      "asset": "LEDGER"
+    }
+  ],
+  "bytes": 153271,
+  "model": "MiniMax-H3",
+  "ratio": "9:16",
+  "prompt": "Vertical 9:16 live-action cinematic drama shot, 5 seconds, with 1 hard cut. Photorealistic, natural performances, no animation.\nReferences: reference image 1 is the location, Rizvi Medical Store — night; reference image 2 is Asma's face and identity; reference image 3 is Bilal's face and identity; reference image 4 is Asma's full outfit; reference image 5 is Bilal's full outfit; reference image 6 is the ledger.\nSetting: INT. RIZVI MEDICAL STORE - NIGHT. Interior of rizvi medical store, lived-in, specific to the story world. Now: night lighting. Layout: Main action area in the centre; entrance behind camera.\nCharacters: Asma Qureshi (reference image 2 and reference image 4): Pakistani woman, 29, slim, oval face, warm medium-brown skin, dark tired eyes, thick straight eyebrows, small scar through left eyebrow, black hair in a low bun, maroon cotton dupatta pinned back with a black bulldog clip, white pharmacist coat over grey kurta; wearing everyday clothes true to the story world. Bilal (reference image 3 and reference image 5): Pakistani boy, 12, thin, close-cropped black hair, chipped front tooth, faded oversized blue cricket jersey reaching his knees, rubber chappals; wearing everyday clothes true to the story world.\nScreen positions, keep consistent: ASMA frame left, BOY frame right.\nKey objects: ledger (reference image 6): A specific, worn ledger that matters to the story.\nTimeline:\n0–3s: wide, slow push-in. Establish INT. RIZVI MEDICAL STORE - NIGHT.\n3–5s: Cut to medium, static. Hold on the lead.\nSound: room tone. No dialogue. No background music.\nLook: 35mm anamorphic look; close, mostly handheld coverage; locked-off frames for inserts; Practical only: sodium streetlight outside, one cold flickering tube light inside; Low-contrast teal shadows, sodium-amber highlights, fine grain.\nMood: Humid, sleepless Karachi: one lit shop in a dark city, where every face is lit by something failing.\nAvoid: on-screen text, subtitles, captions, watermarks, logos, text overlays, extra fingers, glossy beauty lighting, western pharmacy chain branding, clean empty streets; faces or outfits that differ from the references; extra people in frame unless described.",
+  "duration": 5,
+  "warnings": [],
+  "resolution": "768P"
+}
