@@ -1,0 +1,2 @@
+runpod==1.12.0
+# The H3 backend's own dependencies (torch, etc.) go here when its inference code is added.
