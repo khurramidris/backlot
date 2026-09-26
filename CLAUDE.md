@@ -3,6 +3,10 @@
 Backlot is a startup product: prompt → finished film (microdrama, short film, web series, YouTube story).
 The founder works with Claude as CTO and the whole engineering team. Ship-oriented: small, tested, pushed.
 
+## Current work
+**Start with `docs/NEXT.md`**: the approved plan for the Basic subscription, storage quota, Lemon Squeezy and
+account pages. It isn't started yet.
+
 ## Working rules
 - **GitHub `main` is the source of truth.** Commit and push after every meaningful, green step: the founder
   switches between this repo on a laptop and Claude on the web.
@@ -44,4 +48,5 @@ refuses to boot with these flags when `NODE_ENV=production`.
 
 ## Not done yet
 - H3 inference in `gpu-worker/backends/h3.py` (needs the model weights and code).
-- Production accounts (Supabase, Railway, RunPod, Stripe): see `docs/DEPLOY.md`.
+- Production accounts (Supabase, Railway, RunPod, Lemon Squeezy): see `docs/DEPLOY.md`.
+- Everything in `docs/NEXT.md` (Stripe is being replaced by Lemon Squeezy).
