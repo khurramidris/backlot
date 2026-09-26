@@ -18,12 +18,13 @@ import { queueRender, refreshEpisodeStatus, mm } from './pipeline/render.js';
 import { requestCut } from './pipeline/assemble.js';
 import { costOf } from './pipeline/compiler.js';
 import { projectSpend } from './usage.js';
-import { ensureAccount, balanceOf, createCheckout, verifyStripeSignature, handleStripeEvent, settleTake, sellPrice, debit } from './billing.js';
+import { ensureAccount, balanceOf, balances, settleTake, sellPrice, debit, planOf, requirePlan, storageUsed, storageQuotaBytes } from './billing.js';
+import { paymentsEnabled, subscribeCheckout, topupCheckout, portalUrl, verifyLemonSignature, handleLemonEvent } from './lemonsqueezy.js';
 import { resolveBrief } from './pipeline/writer.js';
 import { startAutopilot } from './pipeline/autopilot.js';
 import { endpointHealth } from './providers/runpod.js';
 
-type Env = { Variables: { uid: string } };
+type Env = { Variables: { uid: string; email: string | null } };
 export const app = new Hono<Env>();
 const here = dirname(fileURLToPath(import.meta.url));
 const DEV_USER = '11111111-2222-3333-4444-555555555555';
@@ -38,7 +39,7 @@ app.use('*', (c, next) => (c.req.method === 'PUT' && c.req.path.startsWith('/fil
 app.use('*', cors({ origin: config.corsOrigins.includes('*') ? '*' : config.corsOrigins, allowHeaders: ['authorization', 'content-type', 'x-engine-key', 'x-user-id'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] }));
 
 app.onError((e: any, c) => {
-  const status = e.status || (e instanceof PermanentError ? (e.code === 'not_found' ? 404 : e.code === 'conflict' || e.code === 'not_approved' || e.code === 'bad_state' ? 409 : e.code === 'insufficient_credit' ? 402 : e.code === 'config' ? 503 : 400) : e.name === 'ZodError' ? 400 : 500);
+  const status = e.status || (e instanceof PermanentError ? (e.code === 'not_found' ? 404 : e.code === 'conflict' || e.code === 'not_approved' || e.code === 'bad_state' ? 409 : ['insufficient_credit', 'subscription_required', 'storage_full'].includes(e.code) ? 402 : e.code === 'config' ? 503 : 400) : e.name === 'ZodError' ? 400 : 500);
   if (status >= 500) console.error('[api]', e);
   return c.json({ error: { code: e.code || (status === 400 ? 'bad_request' : 'server_error'), message: e.name === 'ZodError' ? 'Invalid request: ' + (e.issues || []).map((i: any) => `${i.path.join('.')} ${i.message}`).join('; ') : e.message, ...(e.missing ? { missing: e.missing } : {}) } }, status);
 });
@@ -70,14 +71,15 @@ app.get('/files/*', async (c) => {
   return new Response(new Uint8Array(data), { headers: { ...headers, 'content-length': String(data.length) } });
 });
 
-// Stripe calls this after a Checkout payment. Authenticated by its signature, not a user session.
-app.post('/webhooks/stripe', async (c) => {
+// Lemon Squeezy calls this for subscription and order events. Authenticated by its signature, not a user session.
+app.post('/webhooks/lemonsqueezy', async (c) => {
   const raw = await c.req.text();
-  const sig = c.req.header('stripe-signature') || '';
-  if (!config.stripe.webhookSecret || !verifyStripeSignature(raw, sig, config.stripe.webhookSecret)) {
-    return c.json({ error: { code: 'bad_signature', message: 'Invalid Stripe signature.' } }, 400);
+  if (!verifyLemonSignature(raw, c.req.header('x-signature') || '', config.lemonsqueezy.webhookSecret)) {
+    return c.json({ error: { code: 'bad_signature', message: 'Invalid Lemon Squeezy signature.' } }, 400);
   }
-  return c.json(await handleStripeEvent(JSON.parse(raw)));
+  let evt: any;
+  try { evt = JSON.parse(raw); } catch { return c.json({ error: { code: 'bad_request', message: 'Body is not JSON.' } }, 400); }
+  return c.json(await handleLemonEvent(evt));
 });
 
 // The web app reads its sign-in settings at startup, so one build works in every environment.
@@ -127,6 +129,7 @@ async function takeView(t: any) {
 
 // ───────── projects ─────────
 v1.post('/projects', async (c) => {
+  await requirePlan(c.get('uid'));
   const b = await body(c);
   const p = await createProject(c.get('uid'), b.project || b);
   const job = c.req.query('breakdown') === '0' ? null : await enqueue('project.breakdown', { projectId: p.id }, { projectId: p.id, maxAttempts: 2 });
@@ -164,6 +167,7 @@ v1.post('/create', async (c) => {
   const uid = c.get('uid');
   const brief = resolveBrief(await body(c));
   await ensureAccount(uid);
+  await requirePlan(uid);
   const p = await sql.begin(async (tx) => {
     const [p] = await tx`insert into projects (owner_id, title, format, aspect, language, mode, stage, brief, settings)
       values (${uid}, ${brief.prompt.slice(0, 80)}, ${brief.engineFormat}, ${brief.aspect}, ${brief.language}, 'vibe', 'writing', ${tx.json(brief as any)},
@@ -178,6 +182,7 @@ v1.post('/create', async (c) => {
 v1.post('/projects/:id/produce', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
   if (p.mode !== 'vibe' || p.stage !== 'ready') throw new PermanentError('This project is not waiting to be rendered.', 'bad_state');
+  await requirePlan(c.get('uid'));
   const [{ todo }] = await sql`select coalesce(sum(duration) filter (where status <> 'approved'), 0)::int todo from shots where project_id = ${p.id}`;
   const price = sellPrice(p.resolution, todo);
   const balance = await balanceOf(c.get('uid'));
@@ -192,6 +197,7 @@ v1.post('/projects/:id/produce', async (c) => {
 v1.post('/projects/:id/resume', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
   if (p.mode !== 'vibe' || p.stage !== 'failed') throw new PermanentError('Only a failed project can be resumed.', 'bad_state');
+  await requirePlan(c.get('uid'));
   const st = p.autopilot || {};
   const stage = st.failed_stage || 'writing';
   await sql.begin(async (tx) => {
@@ -218,6 +224,7 @@ v1.delete('/projects/:id', async (c) => {
   for (const t of open) await settleTake(t.id, false); // give back credit held for renders that will never be delivered
   const running = await sql`select provider_task_id from takes where project_id = ${p.id} and status in ('submitted','running') and provider_task_id is not null`;
   for (const t of running) await mm().cancelVideoTask?.(t.provider_task_id); // and stop paying for the GPU time
+  await storage.delProject(p.id); // free the customer's storage: every clip, image and cut
   await sql`delete from projects where id = ${p.id}`;
   return c.json({ deleted: true });
 });
@@ -272,6 +279,7 @@ v1.patch('/assets/:id', async (c) => {
 });
 v1.post('/assets/:id/generate', async (c) => {
   const a = await own(c, 'assets', c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const b = await body(c);
   if (a.status === 'approved') await sql`update assets set status = 'review' where id = ${a.id}`;
   await sql`update assets set status = 'planned', error = null where id = ${a.id}`;
@@ -279,6 +287,7 @@ v1.post('/assets/:id/generate', async (c) => {
 });
 v1.post('/projects/:id/assets/generate', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const b = await body(c);
   return c.json({ queued: await queueAllAssets(p.id, { kinds: b.kinds }) }, 202);
 });
@@ -305,6 +314,7 @@ v1.post('/assets/:id/restore', async (c) => {
 });
 v1.post('/assets/:id/upload', async (c) => {
   const a = await own(c, 'assets', c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const form = await c.req.parseBody();
   const f = form['file'] as File;
   if (!f || typeof f === 'string') throw new PermanentError('send multipart form-data with a "file" field');
@@ -314,6 +324,7 @@ v1.post('/assets/:id/upload', async (c) => {
 });
 v1.post('/projects/:id/music', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const form = await c.req.parseBody();
   const f = form['file'] as File;
   if (!f || typeof f === 'string' || !/^audio\//.test(f.type)) throw new PermanentError('send an audio file in the "file" field');
@@ -357,11 +368,13 @@ v1.patch('/shots/:id', async (c) => {
 });
 v1.post('/shots/:id/render', async (c) => {
   const s = await own(c, 'shots', c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const b = await body(c);
   return c.json(await queueRender(s.id, { resolution: resolutionOf(b.resolution) }), 202);
 });
 v1.post('/episodes/:id/render', async (c) => {
   const e = await own(c, 'episodes', c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const b = await body(c);
   const shots = await sql`select id from shots where episode_id = ${e.id} and status in ${sql(b.include_review ? ['planned', 'failed', 'review'] : ['planned', 'failed'])} order by idx`;
   const out: any[] = [];
@@ -371,6 +384,7 @@ v1.post('/episodes/:id/render', async (c) => {
 });
 v1.post('/shots/:id/retake', async (c) => {
   const s = await own(c, 'shots', c.req.param('id'));
+  await requirePlan(c.get('uid'));
   const b = await body(c);
   const resolution = resolutionOf(b.resolution);
   const note = typeof b.note === 'string' ? b.note.slice(0, 1000) : '';
@@ -463,16 +477,22 @@ v1.get('/me', async (c) => {
   const uid = c.get('uid');
   await ensureAccount(uid);
   const events = await sql`select delta_usd::float delta_usd, reason, ref, created_at from credit_events where owner_id = ${uid} order by id desc limit 20`;
+  const credits = await balances(uid);
   return c.json({
-    user_id: uid, balance_usd: await balanceOf(uid), credits_enforced: config.credits.enforce,
+    user_id: uid, email: c.get('email'), balance_usd: credits.total, credits, credits_enforced: config.credits.enforce,
+    plan: { ...(await planOf(uid)), name: config.plan.name, price_usd: config.plan.priceUsd, credits_usd: config.plan.creditsUsd, storage_gb: config.plan.storageGb },
+    storage: { used_bytes: await storageUsed(uid), quota_bytes: storageQuotaBytes() },
     prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd },
-    packs: config.credits.packs, payments_enabled: !!(config.stripe.secretKey && config.stripe.appUrl), recent: events,
+    packs: config.credits.packs.map((p) => ({ id: p.id, usd: p.usd, available: !!p.variantId })),
+    payments_enabled: paymentsEnabled(), recent: events,
   });
 });
-v1.post('/billing/checkout', async (c) => {
+v1.post('/billing/subscribe', async (c) => c.json(await subscribeCheckout(c.get('uid'), c.get('email'))));
+v1.post('/billing/topup', async (c) => {
   const b = await body(c);
-  return c.json(await createCheckout(c.get('uid'), String(b.pack || '')));
+  return c.json(await topupCheckout(c.get('uid'), String(b.pack || ''), c.get('email')));
 });
+v1.get('/billing/portal', async (c) => c.json(await portalUrl(c.get('uid'))));
 v1.get('/jobs/:id', async (c) => {
   const [j] = await sql`select j.id, j.kind, j.status, j.progress, j.error, j.result, j.attempts, j.created_at, j.updated_at from jobs j
     join projects p on p.id = j.project_id where j.id = ${+c.req.param('id')} and p.owner_id = ${c.get('uid')}`;

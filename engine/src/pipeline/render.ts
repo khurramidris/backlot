@@ -3,7 +3,7 @@
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { sql } from '../db.js';
 import { config } from '../config.js';
 import { storage, downloadTo } from '../storage.js';
@@ -151,6 +151,7 @@ export async function pollTake(takeId: string): Promise<any | Again> {
   const dir = await mkdtemp(join(tmpdir(), 'take-'));
   try {
     const local = await storage.toLocal(key, dir);
+    await storage.record(key, (await stat(local)).size); // counts toward storage even when the worker uploaded it directly
     const info = await probe(local).catch((e) => { throw new PermanentError(`downloaded file is not a readable video: ${e.message}`, 'invalid_output'); });
     const problems: string[] = [];
     if (!info.width || !info.height) problems.push('no video stream');

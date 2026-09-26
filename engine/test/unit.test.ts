@@ -7,7 +7,8 @@ import { fitBeats, validateH3, speechSeconds, compileShot } from '../src/pipelin
 import { repairShots } from '../src/pipeline/shots.js';
 import { repair } from '../src/pipeline/breakdown.js';
 import { buildSrt, parseCutOptions } from '../src/pipeline/assemble.js';
-import { verifyStripeSignature } from '../src/billing.js';
+import { splitDebit, isActiveStatus } from '../src/billing.js';
+import { verifyLemonSignature } from '../src/lemonsqueezy.js';
 import { decideWorkersMin } from '../src/capacity.js';
 import { createHmac } from 'node:crypto';
 
@@ -106,15 +107,30 @@ test('subtitles follow beat timing and real clip length', () => {
   assert.match(srt, /00:00:14,050 --> 00:00:17,950\nHello there\./);
 });
 
-test('stripe webhook signatures: valid, tampered, replayed, wrong secret', () => {
-  const secret = 'whsec_test', body = '{"id":"evt_1"}', t = 1_700_000_000;
-  const sig = createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
-  assert.equal(verifyStripeSignature(body, `t=${t},v1=${sig}`, secret, t + 10), true);
-  assert.equal(verifyStripeSignature(body, `t=${t},v1=bad,v1=${sig}`, secret, t), true, 'any matching v1 is enough');
-  assert.equal(verifyStripeSignature(body + ' ', `t=${t},v1=${sig}`, secret, t), false, 'body changed');
-  assert.equal(verifyStripeSignature(body, `t=${t},v1=${sig}`, secret, t + 301), false, 'replayed after 5 minutes');
-  assert.equal(verifyStripeSignature(body, `t=${t},v1=${sig}`, 'whsec_other', t), false, 'wrong secret');
-  assert.equal(verifyStripeSignature(body, '', secret, t), false, 'missing header');
+test('Lemon Squeezy webhook signatures: valid, tampered, wrong secret, missing', () => {
+  const secret = 'ls_whsec_test', body = '{"meta":{"event_name":"order_created"}}';
+  const sig = createHmac('sha256', secret).update(body).digest('hex');
+  assert.equal(verifyLemonSignature(body, sig, secret), true);
+  assert.equal(verifyLemonSignature(body + ' ', sig, secret), false, 'body changed');
+  assert.equal(verifyLemonSignature(body, sig, 'other'), false, 'wrong secret');
+  assert.equal(verifyLemonSignature(body, sig.slice(0, -1), secret), false, 'truncated signature');
+  assert.equal(verifyLemonSignature(body, '', secret), false, 'missing header');
+  assert.equal(verifyLemonSignature(body, sig, ''), false, 'no secret configured');
+});
+
+test('spending takes plan credit first, then top-ups, never below zero', () => {
+  assert.deepEqual(splitDebit(20, 10, 5), { plan: 15, topup: 10 }, 'plan covers it');
+  assert.deepEqual(splitDebit(3, 10, 5), { plan: 0, topup: 8 }, 'plan runs out, top-up pays the rest');
+  assert.deepEqual(splitDebit(0, 10, 10), { plan: 0, topup: 0 }, 'exactly everything');
+  assert.equal(splitDebit(2, 2, 4.01), null, 'not enough in total');
+});
+
+test('plan access: active, trial and grace periods count; cancelled lasts until it ends', () => {
+  const now = Date.parse('2026-09-26T12:00:00Z');
+  for (const s of ['active', 'on_trial', 'past_due']) assert.equal(isActiveStatus(s, null, now), true, s);
+  assert.equal(isActiveStatus('cancelled', '2026-10-01T00:00:00Z', now), true, 'cancelled, paid period not over');
+  assert.equal(isActiveStatus('cancelled', '2026-09-01T00:00:00Z', now), false, 'cancelled and ended');
+  for (const s of ['expired', 'paused', 'unpaid', null]) assert.equal(isActiveStatus(s, '2027-01-01T00:00:00Z', now), false, String(s));
 });
 
 test('cut options reject anything that could reach the FFmpeg filter graph', () => {

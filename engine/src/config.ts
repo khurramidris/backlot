@@ -14,8 +14,9 @@ if (production && devMode) throw new Error('MOCK_PROVIDERS and ALLOW_DEV_TOKENS 
 // Signed file links are the only thing protecting local-storage files, so a guessable default is never allowed outside dev.
 if (!env.FILE_SIGNING_SECRET && !devMode) throw new Error('FILE_SIGNING_SECRET is required (a long random string). Only MOCK_PROVIDERS/ALLOW_DEV_TOKENS runs may omit it.');
 
-/** "starter:10,creator:50" → [{ id: 'starter', usd: 10 }, …] */
-const packs = (v: string) => v.split(',').map((p) => p.split(':')).filter(([id, usd]) => id && +usd > 0).map(([id, usd]) => ({ id: id.trim(), usd: +usd }));
+/** "starter:10:12345,creator:50:12346" → [{ id: 'starter', usd: 10, variantId: '12345' }, …]. The variant is the Lemon Squeezy product variant. */
+const packs = (v: string) => v.split(',').map((p) => p.split(':').map((x) => x.trim())).filter(([id, usd]) => id && +usd > 0)
+  .map(([id, usd, variantId]) => ({ id, usd: +usd, variantId: variantId || '' }));
 
 export const config = {
   port: num(env.PORT, 8787),
@@ -120,14 +121,25 @@ export const config = {
     sellPerSecond: { '768P': num(env.SELL_PER_SECOND_768P, 0.16), '2K': num(env.SELL_PER_SECOND_2K, 0.26) } as Record<string, number>,
     setupFeeUsd: num(env.SETUP_FEE_USD, 0.5),        // per vibe project: script, cast, sets and shot plan
     signupUsd: num(env.SIGNUP_CREDIT_USD, 0),        // free credit when a user's account is first created
+    // Top-up packs for subscribers. They go into the balance that never expires.
     packs: packs(env.CREDIT_PACKS || 'starter:10,creator:50,studio:200'),
   },
 
-  stripe: {
-    secretKey: env.STRIPE_SECRET_KEY || '',
-    webhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
-    apiBase: (env.STRIPE_API_BASE || 'https://api.stripe.com').replace(/\/$/, ''),
-    appUrl: (env.APP_URL || '').replace(/\/$/, ''), // where Checkout returns the customer, e.g. https://backlot.app
+  // The Basic subscription: required to create, includes monthly credit (reset at each renewal) and storage.
+  plan: {
+    name: env.PLAN_NAME || 'Basic',
+    priceUsd: num(env.PLAN_PRICE_USD, 20),     // shown to customers; the charge itself is set in Lemon Squeezy
+    creditsUsd: num(env.PLAN_CREDITS_USD, 20), // plan credit each billing period, unused credit expires at renewal
+    storageGb: num(env.PLAN_STORAGE_GB, 50),
+  },
+
+  lemonsqueezy: {
+    apiKey: env.LEMONSQUEEZY_API_KEY || '',
+    storeId: env.LEMONSQUEEZY_STORE_ID || '',
+    webhookSecret: env.LEMONSQUEEZY_WEBHOOK_SECRET || '',
+    basicVariantId: env.LEMONSQUEEZY_BASIC_VARIANT_ID || '',
+    apiBase: (env.LEMONSQUEEZY_API_BASE || 'https://api.lemonsqueezy.com').replace(/\/$/, ''),
+    appUrl: (env.APP_URL || '').replace(/\/$/, ''), // where checkout returns the customer, e.g. https://backlot.app
   },
 
   // Built web app served by the engine (repo layout: engine/ next to web/).

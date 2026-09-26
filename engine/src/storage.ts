@@ -3,12 +3,13 @@
 // clients get short-lived signed URLs.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile, stat, unlink, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, stat, unlink, copyFile, rm } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { dirname, join, resolve, extname } from 'node:path';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from './config.js';
+import { sql } from './db.js';
 
 const MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -43,6 +44,8 @@ interface Driver {
   uploadUrl(key: string, mime: string, ttl: number): Promise<string>;
   /** Absolute path on disk if the driver is local (lets FFmpeg read without copying). */
   localPath(key: string): string | null;
+  /** Delete everything under a prefix (a whole project's folder). */
+  delPrefix(prefix: string): Promise<void>;
 }
 
 class LocalDriver implements Driver {
@@ -61,6 +64,7 @@ class LocalDriver implements Driver {
     return `${config.publicBaseUrl}/files/${encodeURI(key)}?exp=${exp}&sig=${sign(PUT + key, exp)}`;
   }
   localPath(key: string) { return this.p(key); }
+  async delPrefix(prefix: string) { await rm(this.p(prefix), { recursive: true, force: true }); }
   stream(key: string) { return createReadStream(this.p(key)); }
 }
 
@@ -88,16 +92,43 @@ class S3Driver implements Driver {
     return getSignedUrl(this.c, new PutObjectCommand({ Bucket: this.b, Key: safeKey(key), ContentType: mime }), { expiresIn: Math.min(ttl, 7 * 86400) });
   }
   localPath() { return null; }
+  async delPrefix(prefix: string) {
+    for (let token: string | undefined, more = true; more;) {
+      const r = await this.c.send(new ListObjectsV2Command({ Bucket: this.b, Prefix: safeKey(prefix), ContinuationToken: token }));
+      const keys = (r.Contents || []).map((o) => ({ Key: o.Key! }));
+      if (keys.length) await this.c.send(new DeleteObjectsCommand({ Bucket: this.b, Delete: { Objects: keys, Quiet: true } }));
+      token = r.NextContinuationToken; more = !!r.IsTruncated && !!token;
+    }
+  }
 }
 
 const driver: Driver = config.storage.driver === 's3' ? new S3Driver() : new LocalDriver();
 export const isLocalStorage = driver instanceof LocalDriver;
 
+// Storage quota: every object under projects/<id>/ is recorded in `files` with its size, at the few places
+// objects are written, so usage is one sum per customer and a deleted project frees exactly what it used.
+const PROJECT_KEY = /^projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//i;
+async function record(key: string, bytes: number) {
+  const m = PROJECT_KEY.exec(key);
+  if (!m) return;
+  await sql`insert into files (key, project_id, owner_id, bytes) select ${key}, id, owner_id, ${bytes} from projects where id = ${m[1]}
+    on conflict (key) do update set bytes = excluded.bytes`;
+}
+
 export const storage = {
-  put: (key: string, data: Buffer, mime?: string) => driver.put(key, data, mime || mimeOf(key)),
+  async put(key: string, data: Buffer, mime?: string) { await driver.put(key, data, mime || mimeOf(key)); await record(key, data.length); },
   get: (key: string) => driver.get(key),
   exists: (key: string) => driver.exists(key),
-  del: (key: string) => driver.del(key),
+  async del(key: string) { await driver.del(key); await sql`delete from files where key = ${key}`; },
+  /** Record a file that arrived without passing through put (the GPU worker uploading straight to S3). */
+  record,
+  /** Delete every file of a project: the tracked ones, then anything else left under its folder. */
+  async delProject(projectId: string) {
+    const rows = await sql`select key from files where project_id = ${projectId}`;
+    for (const r of rows) await driver.del(r.key);
+    await driver.delPrefix(`projects/${projectId}/`);
+    await sql`delete from files where project_id = ${projectId}`;
+  },
   url: (key: string, ttl?: number) => driver.url(key, ttl),
   uploadUrl: (key: string, mime: string, ttl = 6 * 3600) => driver.uploadUrl(key, mime, ttl),
   localPath: (key: string) => driver.localPath(key),
@@ -105,8 +136,9 @@ export const storage = {
 
   async putFile(key: string, path: string, mime?: string) {
     const lp = driver.localPath(key);
-    if (lp) { await mkdir(dirname(lp), { recursive: true }); await copyFile(path, lp); return; }
-    await driver.put(key, await readFile(path), mime || mimeOf(key));
+    if (lp) { await mkdir(dirname(lp), { recursive: true }); await copyFile(path, lp); }
+    else await driver.put(key, await readFile(path), mime || mimeOf(key));
+    await record(key, (await stat(path)).size);
   },
   /** Make the file available at a local path for FFmpeg (copies from S3 into tmp if needed). */
   async toLocal(key: string, tmpDir: string) {

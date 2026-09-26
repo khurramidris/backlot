@@ -31,7 +31,7 @@ jobs:
       - run: npm test
       - name: Pipeline, step by step
         run: createdb e2e && DATABASE_URL=postgres://postgres@localhost:5432/e2e PORT=8801 npx tsx test/e2e.ts
-      - name: Prompt to paid film (credits, Stripe, autopilot)
+      - name: Prompt to paid film (subscription, credits, storage, autopilot)
         run: createdb vibe && DATABASE_URL=postgres://postgres@localhost:5432/vibe PORT=8802 npx tsx test/vibe.e2e.ts
       - name: Video on RunPod (fake endpoint), scaling, cancel
         run: createdb runpod && DATABASE_URL=postgres://postgres@localhost:5432/runpod PORT=8803 npx tsx test/runpod.e2e.ts
