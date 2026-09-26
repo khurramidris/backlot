@@ -6,7 +6,7 @@ Everything below is a one-time setup. After it, every push to `main` that passes
                  ┌──────────────── Railway ────────────────┐
  customers ────▶ │  backlot image (Dockerfile)             │ ──▶ Anthropic (scripts, planning)
                  │  web app + API + job worker + FFmpeg    │ ──▶ MiniMax API (reference images, voices)
-                 └──────┬───────────────┬──────────────────┘ ──▶ Stripe (payments)
+                 └──────┬───────────────┬──────────────────┘ ──▶ Lemon Squeezy (subscriptions, top-ups, tax)
                         │               │ jobs / status / cancel / scaling
                  Supabase:              ▼
                  Auth, Postgres,   RunPod Serverless: gpu-worker image + H3 weights on a network volume
@@ -16,9 +16,13 @@ Everything below is a one-time setup. After it, every push to `main` that passes
 ## 1. Supabase (sign-in, database, file storage)
 
 1. Create a project at supabase.com (pick the region closest to your customers and to RunPod).
-2. **Auth → Providers**: keep Email on. For Google, create an OAuth client in Google Cloud, paste its id and
-   secret, and add `https://<your-domain>/dashboard` to **Auth → URL configuration → Redirect URLs**. Set the
-   Site URL to `https://<your-domain>`.
+2. **Auth → Providers**: keep Email on. For Google, create an OAuth client in Google Cloud and paste its id and
+   secret.
+   - **Auth → URL configuration**: set the Site URL to `https://<your-domain>`, and add these Redirect URLs:
+     `https://<your-domain>/dashboard` (sign-up and Google), `https://<your-domain>/reset-password` (forgot
+     password) and `https://<your-domain>/account` (change email).
+   - **Auth → SMTP settings**: add your own email provider (Resend, Postmark, SES…). Supabase's built-in sender
+     only allows a few emails an hour, which isn't enough for sign-up confirmations and password resets.
 3. **Project Settings → API**: copy the Project URL → `SUPABASE_URL`, and the anon/publishable key →
    `SUPABASE_ANON_KEY`.
 4. **Connect → Session pooler**: copy the connection string → `DATABASE_URL`. The engine creates its tables on
@@ -51,12 +55,45 @@ Follow `gpu-worker/README.md`:
 As demand grows, raise `RUNPOD_MAX_WORKERS` (and your RunPod quota). Everything else adapts: RunPod adds
 workers when the queue backs up, and the controller drops the floor to zero when nobody is rendering.
 
-## 3. Stripe
+## 3. Lemon Squeezy (payments)
 
-1. Create the account and switch to live mode when ready. Copy the secret key → `STRIPE_SECRET_KEY`.
-2. **Developers → Webhooks → Add endpoint**: `https://<your-domain>/webhooks/stripe`, with events
-   `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Copy the signing secret →
-   `STRIPE_WEBHOOK_SECRET`.
+Lemon Squeezy is the Merchant of Record: it charges customers, adds and pays VAT and sales tax, and sends
+invoices. Start in **test mode**, and switch the store to live once the launch check passes.
+
+1. Create a store. **Settings → Stores**: copy the store's number → `LEMONSQUEEZY_STORE_ID`.
+2. **Products → New product "Basic"**: pricing **Subscription**, $20, every 1 month. Publish it, then open the
+   variant and copy its id → `LEMONSQUEEZY_BASIC_VARIANT_ID`. (Variant ids are in the product's "…" menu →
+   "Copy ID", or from `GET https://api.lemonsqueezy.com/v1/variants`.)
+3. **Credit packs**: one product each, pricing **Single payment**: Starter $10, Creator $50, Studio $200.
+   Copy each variant id into `CREDIT_PACKS=starter:10:<id>,creator:50:<id>,studio:200:<id>`. The first
+   number is the credit the customer gets, so keep it equal to the product price. The engine never trusts the
+   amount paid, which includes tax.
+4. **Settings → API**: create an API key → `LEMONSQUEEZY_API_KEY`. Test-mode and live-mode keys are separate.
+5. **Settings → Webhooks → +**: URL `https://<your-domain>/webhooks/lemonsqueezy`, a long random signing
+   secret (`openssl rand -hex 32`) → `LEMONSQUEEZY_WEBHOOK_SECRET`, and these events:
+   `order_created`, `subscription_created`, `subscription_updated`, `subscription_cancelled`,
+   `subscription_resumed`, `subscription_expired`, `subscription_paused`, `subscription_unpaused`,
+   `subscription_payment_success`.
+6. **Settings → Customer portal**: turn it on, and allow cancelling and updating the payment method. The
+   Billing page's "Manage subscription" button opens it.
+7. Set `APP_URL=https://<your-domain>`: checkout sends customers back to `/billing?paid=1`.
+
+How the money works:
+- **Plan credit** (`PLAN_CREDITS_USD`, $20) is **reset**, not added, on every paid subscription invoice, so
+  unused plan credit expires at renewal. The ledger (`credit_events`) records `plan_expired` and `plan_credit`.
+- **Top-up credit** from packs, failed-render refunds and refunded setup fees never expire. Spending takes plan
+  credit first.
+- Creating, rendering, retakes and uploads need an active plan: `active`, `on_trial`, `past_due` (grace while
+  Lemon Squeezy retries the card), or `cancelled` until its `ends_at`. When the subscription expires, the rest
+  of the plan credit goes too. Top-ups stay.
+- **Storage**: every project file is counted per customer against `PLAN_STORAGE_GB` (50). When a customer is
+  over it, new work is refused with "You're using 50.3 of 50 GB. Delete old videos to make room." Renders
+  already running finish. Deleting a video deletes its files.
+- Webhooks are verified (`X-Signature`) and applied once: `payments` rows are keyed `ls:invoice:<id>` and
+  `ls:order:<id>`, so Lemon Squeezy's retries never credit twice.
+- **Refunds** issued in the Lemon Squeezy dashboard don't take credit back automatically. If you refund a
+  top-up, take the credit back by hand: `update credit_accounts set balance_usd = balance_usd - <usd>` plus a
+  `credit_events` row with reason `refund_reversed`.
 
 ## 4. Railway (the app)
 
@@ -75,8 +112,22 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
 ## 5. Launch check (10 minutes)
 
 1. Sign up with email and with Google.
-2. Buy the smallest credit pack with a Stripe test card, then check the balance on /credits.
+2. Subscribe to Basic with a Lemon Squeezy test card (`4242 4242 4242 4242`). /billing should show the plan as
+   active with $20 of monthly credit within a few seconds. Buy the Starter pack: top-up credit shows $10.
+   "Manage subscription" should open the customer portal.
 3. Create a microdrama from one sentence. It should stop at "Your approval" with script, cast and price.
 4. Press "Make my video", wait for "Finished", play and download the MP4.
 5. "Fix this shot" on one shot: the balance drops by that shot's price and a new edit appears.
-6. As an admin (`ADMIN_USER_IDS`), open `/v1/admin/capacity`: RunPod workers and the controller's decision.
+6. Delete a video from the dashboard: storage on /billing goes down.
+7. "Forgot password?" on the sign-in page: the email arrives and its link lets you set a new password.
+8. Cancel from the customer portal: /billing shows "Cancelled · ends …" and creating still works until then.
+9. As an admin (`ADMIN_USER_IDS`), open `/v1/admin/capacity`: RunPod workers and the controller's decision.
+
+## 6. Before you take real money
+
+- Fill in the legal entity, jurisdiction, address and support email in `web/src/lib/legal.ts`.
+- Have a lawyer review `/terms` and `/privacy` (`web/src/routes/terms.tsx`, `privacy.tsx`). They're
+  plain-language drafts. In particular, check the retention periods, the list of processors and their data
+  locations, the promise not to train on customer content (confirm it with each AI provider's terms), and the
+  consumer cancellation and refund rights where you sell.
+- Switch the Lemon Squeezy store to live mode, and swap in the live API key, webhook secret and variant ids.

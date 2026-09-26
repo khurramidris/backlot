@@ -67,7 +67,7 @@ See the repository [README](../README.md) for local development and tests, and
 - A reference video (continuity chaining) is billed for its input seconds too.
 - Images cost about $0.0035 each. Voice previews are $30 per million characters.
 - `GET /v1/projects/:id/estimate` gives the numbers for a real project.
-- Set `ENFORCE_CREDITS=1` to require prepaid balance (`credit_accounts` table).
+- Set `ENFORCE_CREDITS=1` (on by default in production) to require an active Basic plan, enough credit and room in storage.
 
 **Draft vs final:** the customer approves the exact clip that goes into the episode. Re-rendering an
 approved 768P draft at 2K produces a *different* clip, so pick the render resolution per
@@ -86,6 +86,7 @@ project (`PATCH /v1/projects/:id {resolution}`) rather than planning to "upscale
 | `src/pipeline/assemble.ts` | final cut, subtitles, loudness, music |
 | `src/providers/*` | Claude, MiniMax (H3, image-01, voice design), RunPod (our H3), Gemini, OpenAI, mocks |
 | `src/pipeline/writer.ts` + `autopilot.ts` | prompt → script, and the stage machine that runs a project to a finished film |
-| `src/billing.ts` | credits, render holds, Stripe |
+| `src/billing.ts` | credit buckets, render holds, plan gate, storage quota |
+| `src/lemonsqueezy.ts` | checkouts, customer portal, payment webhooks |
 | `src/capacity.ts` | RunPod warm-pool controller |
 | `src/server.ts` | REST API, the web app, `public/console.html` review console |

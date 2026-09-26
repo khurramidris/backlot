@@ -7,9 +7,9 @@ video: microdramas, short films, web series and YouTube stories.
 | | |
 |---|---|
 | `web/` | Product UI (React + Vite), served by the engine |
-| `engine/` | API, job queue, AI pipeline, FFmpeg, credits, Stripe |
+| `engine/` | API, job queue, AI pipeline, FFmpeg, credits, subscriptions (Lemon Squeezy), storage quota |
 | `gpu-worker/` | The H3 video model on RunPod Serverless |
-| `docs/DEPLOY.md` | Supabase, RunPod, Stripe and Railway setup, and scaling |
+| `docs/DEPLOY.md` | Supabase, RunPod, Lemon Squeezy and Railway setup, scaling, and the launch check |
 | `docs/ARCHITECTURE.md` | How it fits together |
 
 ## Run it locally (no API keys, nothing billed)
