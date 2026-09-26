@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from './db.js';
 import { config } from './config.js';
 import { PermanentError } from './queue.js';
-import { credit, expirePlanCredit, planOf, resetPlanCredit } from './billing.js';
+import { credit, currentSubscription, expirePlanCredit, planOf, resetPlanCredit } from './billing.js';
 
 const ls = config.lemonsqueezy;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -61,7 +61,7 @@ export async function topupCheckout(ownerId: string, packId: string, email?: str
 
 /** A fresh signed link to Lemon Squeezy's customer portal: update the card, see invoices, cancel. */
 export async function portalUrl(ownerId: string) {
-  const [s] = await sql`select id from subscriptions where owner_id = ${ownerId} order by updated_at desc limit 1`;
+  const s = await currentSubscription(ownerId);
   if (!s) throw new PermanentError('You have no subscription yet.', 'not_found');
   if (!ls.apiKey) throw new PermanentError('Payments are not set up yet.', 'config');
   const j = await api('GET', `/subscriptions/${encodeURIComponent(s.id)}`);

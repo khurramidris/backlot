@@ -126,7 +126,8 @@ export const storage = {
   async delProject(projectId: string) {
     const rows = await sql`select key from files where project_id = ${projectId}`;
     for (const r of rows) await driver.del(r.key);
-    await driver.delPrefix(`projects/${projectId}/`);
+    // Sweep up anything untracked. A provider that can't list or bulk-delete must not block deleting the project.
+    await driver.delPrefix(`projects/${projectId}/`).catch((e) => console.warn(`[storage] sweeping project ${projectId}: ${e.message}`));
     await sql`delete from files where project_id = ${projectId}`;
   },
   url: (key: string, ttl?: number) => driver.url(key, ttl),

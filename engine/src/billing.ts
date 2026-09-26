@@ -108,8 +108,14 @@ export function isActiveStatus(status: string | null | undefined, endsAt: Date |
   return status === 'cancelled' && !!endsAt && new Date(endsAt).getTime() > now;
 }
 
+/** The subscription that decides access: an active one if there is any (an old one can still send late webhooks), else the latest. */
+export async function currentSubscription(ownerId: string) {
+  const rows = await sql`select id, status, renews_at, ends_at from subscriptions where owner_id = ${ownerId} order by updated_at desc limit 20`;
+  return rows.find((r: any) => isActiveStatus(r.status, r.ends_at)) ?? rows[0] ?? null;
+}
+
 export async function planOf(ownerId: string): Promise<Plan> {
-  const [s] = await sql`select status, renews_at, ends_at from subscriptions where owner_id = ${ownerId} order by updated_at desc limit 1`;
+  const s = await currentSubscription(ownerId);
   if (!s) return { status: null, active: false, renews_at: null, ends_at: null };
   const iso = (d: any) => (d ? new Date(d).toISOString() : null);
   return { status: s.status, active: isActiveStatus(s.status, s.ends_at), renews_at: iso(s.renews_at), ends_at: iso(s.ends_at) };
