@@ -4,7 +4,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { initSupabase } from "@/lib/supabase";
+import { initSupabase, setPublicPlan, type PublicPlan } from "@/lib/supabase";
 import { getRouter } from "./router";
 
 const root = createRoot(document.getElementById("root")!);
@@ -12,14 +12,22 @@ const root = createRoot(document.getElementById("root")!);
 // Runtime config from the engine, so one build works in every environment.
 fetch("/app-config.json")
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`app config ${r.status}`))))
-  .then((cfg: { supabaseUrl: string; supabaseAnonKey: string; devUser?: string }) => {
-    initSupabase(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.devUser ?? null);
-    root.render(
-      <StrictMode>
-        <RouterProvider router={getRouter()} />
-      </StrictMode>,
-    );
-  })
+  .then(
+    (cfg: {
+      supabaseUrl: string;
+      supabaseAnonKey: string;
+      devUser?: string;
+      plan?: PublicPlan;
+    }) => {
+      initSupabase(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.devUser ?? null);
+      setPublicPlan(cfg.plan);
+      root.render(
+        <StrictMode>
+          <RouterProvider router={getRouter()} />
+        </StrictMode>,
+      );
+    },
+  )
   .catch((err: unknown) => {
     console.error(err);
     root.render(

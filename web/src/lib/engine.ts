@@ -148,17 +148,34 @@ export type Shot = {
   takes: Take[];
 };
 
+export type Plan = {
+  name: string;
+  status: string | null;
+  active: boolean;
+  renews_at: string | null;
+  ends_at: string | null;
+  price_usd: number;
+  credits_usd: number;
+  storage_gb: number;
+};
+
 export type Me = {
+  email: string | null;
   balance_usd: number;
+  credits: { plan: number; topup: number; total: number };
   credits_enforced: boolean;
+  plan: Plan;
+  storage: { used_bytes: number; quota_bytes: number };
   prices: { per_second: Record<string, number>; setup_fee_usd: number };
-  packs: { id: string; usd: number }[];
+  packs: { id: string; usd: number; available: boolean }[];
   payments_enabled: boolean;
 };
 
 export const engine = {
   me: () => call<Me>("GET", "/me"),
-  checkout: (pack: string) => call<{ url: string }>("POST", "/billing/checkout", { pack }),
+  subscribe: () => call<{ url: string }>("POST", "/billing/subscribe", {}),
+  topup: (pack: string) => call<{ url: string }>("POST", "/billing/topup", { pack }),
+  portal: () => call<{ url: string }>("GET", "/billing/portal"),
   projects: () => call<{ projects: ProjectSummary[] }>("GET", "/projects").then((r) => r.projects),
   project: (id: string) => call<ProjectDetail>("GET", `/projects/${id}`),
   create: (input: { prompt: string; format: FormatId; language?: string }) =>
@@ -195,3 +212,34 @@ export const isWorking = (stage: Stage | null | undefined) =>
   !!stage && !["ready", "done", "failed"].includes(stage);
 
 export const usd = (v: number) => `$${v.toFixed(2)}`;
+
+/** Whether this customer can start new work: always in local development, otherwise with an active plan. */
+export const canCreate = (me: Me | undefined) => !me || !me.credits_enforced || me.plan.active;
+
+/** 53687091200 → "50 GB", 1288490188 → "1.2 GB", 52428800 → "50 MB". */
+export function formatBytes(bytes: number) {
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1) return `${+gb.toFixed(gb >= 10 ? 0 : 1)} GB`;
+  const mb = bytes / 1024 ** 2;
+  return mb >= 1 ? `${+mb.toFixed(mb >= 10 ? 0 : 1)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+export const formatDate = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : "";
+
+/** Plan status in words, for the billing and account pages. */
+export function planLabel(plan: Plan) {
+  if (!plan.status) return "Not subscribed";
+  if (plan.status === "cancelled" && plan.active)
+    return `Cancelled · ends ${formatDate(plan.ends_at)}`;
+  if (plan.status === "past_due") return "Payment failed · update your card";
+  if (plan.active)
+    return plan.renews_at ? `Active · renews ${formatDate(plan.renews_at)}` : "Active";
+  return plan.status === "paused" ? "Paused" : "Ended";
+}

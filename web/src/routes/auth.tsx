@@ -1,15 +1,24 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Clapperboard } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 
+import { AuthCard } from "@/components/layout/AuthCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "@/modules/auth/auth.service";
+import {
+  sendPasswordReset,
+  signInWithEmail,
+  signInWithGoogle,
+  signUpWithEmail,
+} from "@/modules/auth/auth.service";
 import { useAuth } from "@/modules/auth/useAuth";
 
+type Mode = "signin" | "signup" | "forgot";
+
 export const Route = createFileRoute("/auth")({
+  validateSearch: z.object({ mode: z.enum(["signin", "signup", "forgot"]).optional() }),
   head: () => ({
     meta: [
       { title: "Sign in — Backlot" },
@@ -30,7 +39,8 @@ export const Route = createFileRoute("/auth")({
 });
 
 function AuthPage() {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const search = Route.useSearch();
+  const [mode, setMode] = useState<Mode>(search.mode ?? "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -46,6 +56,16 @@ function AuthPage() {
     event.preventDefault();
     setBusy(true);
     try {
+      if (mode === "forgot") {
+        const result = await sendPasswordReset(email);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success("If that email has an account, a reset link is on its way.");
+        setMode("signin");
+        return;
+      }
       if (mode === "signup") {
         const result = await signUpWithEmail(email, password, displayName);
         if (result.error) {
@@ -84,48 +104,55 @@ function AuthPage() {
     setBusy(false);
   }
 
-  return (
-    <div className="stage-light tech-grid flex min-h-screen items-center justify-center px-4 py-12">
-      <div className="panel w-full max-w-md rounded-sm border border-border-strong p-8">
-        <Link to="/" className="mb-7 flex items-center gap-2.5">
-          <span className="flex size-6 items-center justify-center rounded-sm bg-primary">
-            <Clapperboard className="size-3.5 text-primary-foreground" />
-          </span>
-          <span className="font-display text-base font-bold tracking-tight">Backlot</span>
-        </Link>
-        <h1 className="text-2xl font-semibold">
-          {mode === "signin" ? "Sign in" : "Create your account"}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {mode === "signin" ? "Continue to your videos." : "Start producing AI drama episodes."}
-        </p>
+  const title = { signin: "Sign in", signup: "Create your account", forgot: "Reset your password" }[
+    mode
+  ];
+  const subtitle = {
+    signin: "Continue to your videos.",
+    signup: "Start producing AI drama episodes.",
+    forgot: "We'll email you a link to choose a new one.",
+  }[mode];
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          {mode === "signup" ? (
-            <div className="space-y-2">
-              <Label htmlFor="displayName">Name</Label>
-              <Input
-                id="displayName"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Ada Lovelace"
-                required
-              />
-            </div>
-          ) : null}
+  return (
+    <AuthCard title={title} subtitle={subtitle}>
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        {mode === "signup" ? (
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="displayName">Name</Label>
             <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="displayName"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Ada Lovelace"
               required
             />
           </div>
+        ) : null}
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </div>
+        {mode !== "forgot" ? (
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-baseline justify-between">
+              <Label htmlFor="password">Password</Label>
+              {mode === "signin" ? (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:text-primary hover:underline"
+                  onClick={() => setMode("forgot")}
+                >
+                  Forgot password?
+                </button>
+              ) : null}
+            </div>
             <Input
               id="password"
               type="password"
@@ -136,32 +163,60 @@ function AuthPage() {
               required
             />
           </div>
-          <Button type="submit" className="w-full" disabled={busy}>
-            {mode === "signin" ? "Sign in" : "Create account"}
-          </Button>
-        </form>
-
-        <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="h-px flex-1 bg-border" />
-          or
-          <span className="h-px flex-1 bg-border" />
-        </div>
-
-        <Button variant="outline" className="w-full" onClick={handleGoogle} disabled={busy}>
-          Continue with Google
+        ) : null}
+        <Button type="submit" className="w-full" disabled={busy}>
+          {{ signin: "Sign in", signup: "Create account", forgot: "Send reset link" }[mode]}
         </Button>
+        {mode === "signup" ? (
+          <p className="text-center text-xs text-muted-foreground">
+            By creating an account you agree to the{" "}
+            <Link to="/terms" className="underline underline-offset-2 hover:text-primary">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link to="/privacy" className="underline underline-offset-2 hover:text-primary">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        ) : null}
+      </form>
 
+      {mode === "forgot" ? (
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          {mode === "signin" ? "No account yet?" : "Already have an account?"}{" "}
+          Remembered it?{" "}
           <button
             type="button"
             className="text-primary underline-offset-4 hover:underline"
-            onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+            onClick={() => setMode("signin")}
           >
-            {mode === "signin" ? "Create one" : "Sign in"}
+            Sign in
           </button>
         </p>
-      </div>
-    </div>
+      ) : (
+        <>
+          <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            or
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <Button variant="outline" className="w-full" onClick={handleGoogle} disabled={busy}>
+            Continue with Google
+          </Button>
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            {mode === "signin" ? "No account yet?" : "Already have an account?"}{" "}
+            <button
+              type="button"
+              className="text-primary underline-offset-4 hover:underline"
+              onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+            >
+              {mode === "signin" ? "Create one" : "Sign in"}
+            </button>
+          </p>
+        </>
+      )}
+    </AuthCard>
   );
 }

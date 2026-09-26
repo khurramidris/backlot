@@ -85,6 +85,8 @@ app.post('/webhooks/lemonsqueezy', async (c) => {
 // The web app reads its sign-in settings at startup, so one build works in every environment.
 app.get('/app-config.json', (c) => c.json({
   supabaseUrl: config.auth.supabaseUrl, supabaseAnonKey: config.auth.supabaseAnonKey,
+  // Public pricing for the landing page.
+  plan: { name: config.plan.name, price_usd: config.plan.priceUsd, credits_usd: config.plan.creditsUsd, storage_gb: config.plan.storageGb },
   ...(config.auth.allowDevTokens ? { devUser: DEV_USER } : {}), // local development: sign in as a fixed user
 }));
 app.get('/console', async (c) => c.html(await readFile(join(here, '..', 'public', 'console.html'), 'utf8')));

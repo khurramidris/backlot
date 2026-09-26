@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Clapperboard } from "lucide-react";
+import { ArrowRight, Check, Clapperboard } from "lucide-react";
 
 import heroImage from "@/assets/hero-stage.jpg";
+import { usd } from "@/lib/engine";
+import { publicPlan } from "@/lib/supabase";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -64,12 +66,20 @@ function Landing() {
             </span>
             <span className="font-display text-base font-bold tracking-tight">Backlot</span>
           </div>
-          <Link
-            to="/auth"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
-          >
-            Sign in
-          </Link>
+          <nav className="flex items-center gap-6">
+            <a
+              href="#pricing"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+            >
+              Pricing
+            </a>
+            <Link
+              to="/auth"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+            >
+              Sign in
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -136,12 +146,70 @@ function Landing() {
         </div>
       </section>
 
+      <Pricing />
+
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
           <span className="meta-label">Backlot — the AI film studio</span>
-          <span className="meta-label">Microdramas · short films · web series · YouTube</span>
+          <nav className="flex gap-6">
+            <Link to="/terms" className="meta-label transition-colors hover:text-primary">
+              Terms
+            </Link>
+            <Link to="/privacy" className="meta-label transition-colors hover:text-primary">
+              Privacy
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>
+  );
+}
+
+function Pricing() {
+  const plan = publicPlan;
+  return (
+    <section id="pricing" className="border-t border-border">
+      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 lg:grid-cols-2">
+        <div>
+          <div className="inline-flex items-center gap-3">
+            <span className="h-px w-8 bg-primary" />
+            <span className="meta-label font-semibold text-primary">Pricing</span>
+          </div>
+          <h2 className="mt-6 text-4xl font-bold leading-tight">One plan. Everything included.</h2>
+          <p className="mt-4 max-w-md text-muted-foreground">
+            Your monthly credits cover writing, casting, filming and editing. You see the price of
+            every film and approve it before anything is rendered. Need more? Top up any time.
+          </p>
+        </div>
+        <div className="border border-primary/50 bg-surface p-8 shadow-[var(--shadow-glow)]">
+          <div className="meta-label text-primary">{plan.name}</div>
+          <div className="mt-3 flex items-baseline gap-1">
+            <span className="text-5xl font-bold">{usd(plan.price_usd)}</span>
+            <span className="text-muted-foreground">/month</span>
+          </div>
+          <ul className="mt-6 space-y-3 text-sm">
+            {[
+              `${usd(plan.credits_usd)} of credits every month`,
+              `${plan.storage_gb} GB of storage for your films`,
+              "Top-up credit packs any time, and they never expire",
+              "Failed renders refunded automatically",
+              "Cancel any time",
+            ].map((line) => (
+              <li key={line} className="flex gap-3">
+                <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                {line}
+              </li>
+            ))}
+          </ul>
+          <Link
+            to="/auth"
+            search={{ mode: "signup" }}
+            className="mt-8 inline-flex w-full items-center justify-center rounded-sm bg-primary px-6 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Get started
+          </Link>
+        </div>
+      </div>
+    </section>
   );
 }

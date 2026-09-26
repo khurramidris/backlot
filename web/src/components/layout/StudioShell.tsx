@@ -1,17 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { Clapperboard, LogOut } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Clapperboard, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
 import { engine, usd } from "@/lib/engine";
-import { signOut } from "@/modules/auth/auth.service";
 
 const navLink =
-  "font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground transition-colors hover:text-primary";
+  "whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-primary sm:tracking-[0.2em]";
 
 export function StudioShell({ children }: { children: ReactNode }) {
-  const navigate = useNavigate();
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: engine.me, staleTime: 15_000 });
 
   return (
@@ -24,24 +21,21 @@ export function StudioShell({ children }: { children: ReactNode }) {
             </span>
             <span className="font-display text-base font-bold tracking-tight">Backlot</span>
           </Link>
-          <nav className="flex items-center gap-5">
+          <nav className="flex items-center gap-4 sm:gap-5">
             <Link to="/dashboard" className={navLink} activeProps={{ className: "text-primary" }}>
               Create
             </Link>
-            <Link to="/credits" className={navLink} activeProps={{ className: "text-primary" }}>
-              Credits{me ? ` · ${usd(me.balance_usd)}` : ""}
+            <Link to="/billing" className={navLink} activeProps={{ className: "text-primary" }}>
+              Billing{me?.credits_enforced ? ` · ${usd(me.credits.total)}` : ""}
             </Link>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                await signOut();
-                void navigate({ to: "/auth" });
-              }}
+            <Link
+              to="/account"
+              className={navLink + " flex items-center gap-1.5"}
+              activeProps={{ className: "text-primary" }}
             >
-              <LogOut className="size-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </Button>
+              <UserRound className="size-3.5" />
+              <span className="hidden sm:inline">Account</span>
+            </Link>
           </nav>
         </div>
       </header>

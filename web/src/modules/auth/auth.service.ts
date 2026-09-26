@@ -36,3 +36,25 @@ export async function signInWithGoogle(): Promise<{ error: string | null; redire
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }
+
+/** Emails a link that opens /reset-password with a recovery session. */
+export async function sendPasswordReset(email: string): Promise<AuthResult> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  return { error: error?.message ?? null };
+}
+
+/** Supabase emails a confirmation link to the new address; the change applies once it's clicked. */
+export async function updateEmail(email: string): Promise<AuthResult> {
+  const { error } = await supabase.auth.updateUser(
+    { email },
+    { emailRedirectTo: `${window.location.origin}/account` },
+  );
+  return { error: error?.message ?? null };
+}
+
+export async function updatePassword(password: string): Promise<AuthResult> {
+  const { error } = await supabase.auth.updateUser({ password });
+  return { error: error?.message ?? null };
+}

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { FORMATS, isWorking, STAGE_LABEL, usd } from "@/lib/engine";
+import {
+  canCreate,
+  formatBytes,
+  FORMATS,
+  isWorking,
+  planLabel,
+  STAGE_LABEL,
+  usd,
+  type Me,
+} from "@/lib/engine";
 
 describe("engine client helpers", () => {
   it("polls only while the autopilot is working", () => {
@@ -22,5 +31,36 @@ describe("engine client helpers", () => {
   it("labels every stage and formats money", () => {
     expect(Object.keys(STAGE_LABEL)).toHaveLength(9);
     expect(usd(3.9)).toBe("$3.90");
+  });
+});
+
+describe("plan, storage and billing helpers", () => {
+  const me = (plan: Partial<Me["plan"]>, enforced = true) =>
+    ({
+      credits_enforced: enforced,
+      plan: { name: "Basic", status: null, active: false, renews_at: null, ends_at: null, ...plan },
+    }) as Me;
+
+  it("gates creating on an active plan only when credits are enforced", () => {
+    expect(canCreate(undefined)).toBe(true);
+    expect(canCreate(me({}, false))).toBe(true);
+    expect(canCreate(me({}))).toBe(false);
+    expect(canCreate(me({ status: "active", active: true }))).toBe(true);
+  });
+
+  it("formats storage sizes", () => {
+    expect(formatBytes(50 * 1024 ** 3)).toBe("50 GB");
+    expect(formatBytes(1.24 * 1024 ** 3)).toBe("1.2 GB");
+    expect(formatBytes(52 * 1024 ** 2)).toBe("52 MB");
+    expect(formatBytes(0)).toBe("0 KB");
+  });
+
+  it("describes the plan status", () => {
+    expect(planLabel(me({}).plan)).toBe("Not subscribed");
+    expect(planLabel(me({ status: "past_due", active: true }).plan)).toMatch(/update your card/);
+    expect(
+      planLabel(me({ status: "cancelled", active: true, ends_at: "2026-10-26T00:00:00Z" }).plan),
+    ).toMatch(/^Cancelled · ends /);
+    expect(planLabel(me({ status: "expired" }).plan)).toBe("Ended");
   });
 });

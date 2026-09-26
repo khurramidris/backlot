@@ -165,7 +165,7 @@ function Checkpoint({ data }: { data: ProjectDetail }) {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: engine.me });
   const price = data.render_price_usd;
   const seconds = data.episodes.reduce((t, e) => t + e.seconds, 0);
-  const short = !!me?.credits_enforced && me.balance_usd < price;
+  const short = !!me?.credits_enforced && (!me.plan.active || me.balance_usd < price);
   const produce = useMutation({
     mutationFn: () => engine.produce(data.project.id),
     onSuccess: () => {
@@ -191,7 +191,7 @@ function Checkpoint({ data }: { data: ProjectDetail }) {
         ) : null}
         {short ? (
           <Button asChild className="mt-3">
-            <Link to="/credits">Add credits</Link>
+            <Link to="/billing">{me?.plan.active ? "Add credits" : "Subscribe"}</Link>
           </Button>
         ) : (
           <Button className="mt-3" onClick={() => produce.mutate()} disabled={produce.isPending}>
