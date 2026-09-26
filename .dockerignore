@@ -4,8 +4,6 @@
 **/data
 **/.env
 **/.env.*
-studio-engine
-scene-scribe-studio-91
 gpu-worker
 docs
 .github
