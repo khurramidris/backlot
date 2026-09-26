@@ -2,8 +2,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let client: SupabaseClient | null = null;
 
+/** Local development only: the engine runs with ALLOW_DEV_TOKENS and names a user to act as. */
+export let devUserId: string | null = null;
+
 /** Called once at startup with the settings the engine serves at /app-config.json. */
-export function initSupabase(url: string, anonKey: string) {
+export function initSupabase(url: string, anonKey: string, devUser: string | null = null) {
+  devUserId = devUser;
   client = createClient(url, anonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });

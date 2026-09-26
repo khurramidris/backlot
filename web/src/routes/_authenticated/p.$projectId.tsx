@@ -491,14 +491,7 @@ function CastAndSets({ projectId }: { projectId: string }) {
             <img
               src={a.url!}
               alt={a.name}
-              className={cn(
-                "w-full object-cover",
-                a.kind === "character"
-                  ? "aspect-[3/4]"
-                  : a.kind === "prop"
-                    ? "aspect-square"
-                    : "aspect-video",
-              )}
+              className="aspect-[3/4] w-full object-cover"
               loading="lazy"
             />
             <figcaption className="p-2">

@@ -12,8 +12,8 @@ const root = createRoot(document.getElementById("root")!);
 // Runtime config from the engine, so one build works in every environment.
 fetch("/app-config.json")
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`app config ${r.status}`))))
-  .then((cfg: { supabaseUrl: string; supabaseAnonKey: string }) => {
-    initSupabase(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  .then((cfg: { supabaseUrl: string; supabaseAnonKey: string; devUser?: string }) => {
+    initSupabase(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.devUser ?? null);
     root.render(
       <StrictMode>
         <RouterProvider router={getRouter()} />
@@ -23,6 +23,8 @@ fetch("/app-config.json")
   .catch((err: unknown) => {
     console.error(err);
     root.render(
-      <p style={{ padding: 24, fontFamily: "sans-serif" }}>Backlot is starting up. Please refresh in a moment.</p>,
+      <p style={{ padding: 24, fontFamily: "sans-serif" }}>
+        Backlot is starting up. Please refresh in a moment.
+      </p>,
     );
   });

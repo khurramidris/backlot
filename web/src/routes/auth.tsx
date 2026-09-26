@@ -6,25 +6,21 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  signInWithEmail,
-  signInWithGoogle,
-  signUpWithEmail,
-} from "@/modules/auth/auth.service";
+import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "@/modules/auth/auth.service";
 import { useAuth } from "@/modules/auth/useAuth";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Sign in — Backlot Studio" },
+      { title: "Sign in — Backlot" },
       {
         name: "description",
-        content: "Sign in to Backlot Studio to produce AI microdramas and episodes.",
+        content: "Sign in to Backlot and turn a story into a film.",
       },
-      { property: "og:title", content: "Sign in — Backlot Studio" },
+      { property: "og:title", content: "Sign in — Backlot" },
       {
         property: "og:description",
-        content: "Sign in to Backlot Studio to produce AI microdramas and episodes.",
+        content: "Sign in to Backlot and turn a story into a film.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -95,15 +91,13 @@ function AuthPage() {
           <span className="flex size-6 items-center justify-center rounded-sm bg-primary">
             <Clapperboard className="size-3.5 text-primary-foreground" />
           </span>
-          <span className="font-display text-base font-bold tracking-tight">Backlot Studio</span>
+          <span className="font-display text-base font-bold tracking-tight">Backlot</span>
         </Link>
         <h1 className="text-2xl font-semibold">
           {mode === "signin" ? "Sign in" : "Create your account"}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {mode === "signin"
-            ? "Continue to your production workspace."
-            : "Start producing AI drama episodes."}
+          {mode === "signin" ? "Continue to your videos." : "Start producing AI drama episodes."}
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">

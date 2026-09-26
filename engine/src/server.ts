@@ -4,8 +4,8 @@ import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
-import { readFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { join, dirname, resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { sql, plain } from './db.js';
@@ -25,6 +25,7 @@ import { startAutopilot } from './pipeline/autopilot.js';
 type Env = { Variables: { uid: string } };
 export const app = new Hono<Env>();
 const here = dirname(fileURLToPath(import.meta.url));
+const DEV_USER = '11111111-2222-3333-4444-555555555555';
 
 const tooBig = (c: Context) => c.json({ error: { code: 'too_large', message: 'Request body is too large.' } }, 413);
 const jsonLimit = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooBig });
@@ -67,8 +68,11 @@ app.post('/webhooks/stripe', async (c) => {
   return c.json(await handleStripeEvent(JSON.parse(raw)));
 });
 
-app.get('/', (c) => c.redirect('/console'));
-app.get('/favicon.ico', (c) => c.body(null, 204));
+// The web app reads its sign-in settings at startup, so one build works in every environment.
+app.get('/app-config.json', (c) => c.json({
+  supabaseUrl: config.auth.supabaseUrl, supabaseAnonKey: config.auth.supabaseAnonKey,
+  ...(config.auth.allowDevTokens ? { devUser: DEV_USER } : {}), // local development: sign in as a fixed user
+}));
 app.get('/console', async (c) => c.html(await readFile(join(here, '..', 'public', 'console.html'), 'utf8')));
 
 const v1 = new Hono<Env>();
@@ -476,3 +480,23 @@ v1.get('/projects/:id/events', async (c) => {
 });
 
 app.route('/v1', v1);
+
+// ───────── the web app (web/dist): static files, and index.html for every app route ─────────
+const WEB_MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json', '.txt': 'text/plain', '.webmanifest': 'application/manifest+json',
+};
+const webDir = resolve(config.webDir);
+app.get('*', async (c) => {
+  const path = decodeURIComponent(c.req.path);
+  if (/^\/(v1|files|webhooks|health|console)(\/|$)/.test(path)) return c.json({ error: { code: 'not_found', message: 'not found' } }, 404);
+  const file = resolve(webDir, '.' + path);
+  if (path !== '/' && file.startsWith(webDir + sep) && (await stat(file).then((s) => s.isFile(), () => false))) {
+    return new Response(new Uint8Array(await readFile(file)), { headers: {
+      'content-type': WEB_MIME[extname(file).toLowerCase()] || 'application/octet-stream',
+      'cache-control': path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache', // Vite hashes /assets names
+    } });
+  }
+  const index = await readFile(join(webDir, 'index.html'), 'utf8').catch(() => null);
+  return index ? c.html(index, 200, { 'cache-control': 'no-cache' }) : c.text('The web app is not built. Run `npm run build` in web/.', 404);
+});

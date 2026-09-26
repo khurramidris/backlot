@@ -73,7 +73,10 @@ async function casting(p: any, st: any): Promise<Again> {
     await patchState(p.id, { retried_assets: [...retried, ...retry.map((r: any) => r.id)] });
     return again(3, 'Retrying references that failed');
   }
-  // Anything still missing is skipped: its shots render without that reference.
+  // Faces and sets are what keep a film consistent: without them, stop before the customer pays to render.
+  // Anything else still missing (a prop, an outfit, a voice) is skipped; its shots render without it.
+  const missing = rows.filter((r: any) => (r.kind === 'character' || r.kind === 'location') && r.status !== 'approved');
+  if (missing.length) throw new PermanentError(`${missing.length} of the main characters and sets could not be designed. Please try again.`, 'casting_failed');
   await setStage(p.id, 'planning');
   return again(0, 'Cast and sets locked');
 }

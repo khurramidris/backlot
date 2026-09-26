@@ -1,6 +1,6 @@
 // Client for the Backlot engine (same origin in production; the Vite dev server proxies /v1). The engine owns every paid call and all heavy work;
 // the browser only sends the signed-in user's Supabase access token.
-import { supabase } from "@/lib/supabase";
+import { devUserId, supabase } from "@/lib/supabase";
 
 const ENGINE_URL = (import.meta.env["VITE_ENGINE_URL"] ?? "").replace(/\/$/, "");
 
@@ -15,11 +15,13 @@ export class EngineError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const { data } = await supabase.auth.getSession();
+  const token = devUserId
+    ? `dev:${devUserId}`
+    : (await supabase.auth.getSession()).data.session?.access_token;
   const res = await fetch(`${ENGINE_URL}/v1${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${data.session?.access_token ?? ""}`,
+      Authorization: `Bearer ${token ?? ""}`,
       "Content-Type": "application/json",
     },
     body: body === undefined ? null : JSON.stringify(body),

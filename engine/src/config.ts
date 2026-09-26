@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 // All configuration comes from environment variables. Nothing secret ever reaches the browser.
 
 const env = process.env;
@@ -102,6 +104,9 @@ export const config = {
     apiBase: (env.STRIPE_API_BASE || 'https://api.stripe.com').replace(/\/$/, ''),
     appUrl: (env.APP_URL || '').replace(/\/$/, ''), // where Checkout returns the customer, e.g. https://backlot.app
   },
+
+  // Built web app served by the engine (repo layout: engine/ next to web/).
+  webDir: env.WEB_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist'),
 
   autopilot: {
     maxRuntimeSeconds: num(env.MAX_RUNTIME_SECONDS, 600), // hard cap per project at launch

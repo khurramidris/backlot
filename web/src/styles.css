@@ -127,14 +127,10 @@
     oklch(0.635 0.168 39 / 0.05) 34%,
     transparent 68%
   );
-  --gradient-panel: linear-gradient(
-    162deg,
-    oklch(0.245 0.003 60) 0%,
-    oklch(0.198 0.003 60) 100%
-  );
+  --gradient-panel: linear-gradient(162deg, oklch(0.245 0.003 60) 0%, oklch(0.198 0.003 60) 100%);
   --shadow-stage: 0 24px 60px -28px oklch(0 0 0 / 0.85);
-  --shadow-glow: 0 0 0 1px oklch(0.635 0.168 39 / 0.35),
-    0 14px 44px -18px oklch(0.635 0.168 39 / 0.45);
+  --shadow-glow:
+    0 0 0 1px oklch(0.635 0.168 39 / 0.35), 0 14px 44px -18px oklch(0.635 0.168 39 / 0.45);
   --grid-line: oklch(0.975 0.002 60 / 0.028);
 }
 
