@@ -1,7 +1,7 @@
 {
-  "name": "reelwright-studio-engine",
+  "name": "backlot-engine",
   "version": "0.1.0",
-  "description": "Production engine: screenplay → locked assets → MiniMax H3 clips → approved, stitched episodes",
+  "description": "Backlot engine: prompt \u2192 script \u2192 cast \u2192 shots \u2192 rendered, edited film",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
@@ -9,7 +9,9 @@
     "build": "tsc -p .",
     "typecheck": "tsc -p . --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "e2e": "tsx test/e2e.ts"
+    "e2e": "tsx test/e2e.ts",
+    "e2e:vibe": "tsx test/vibe.e2e.ts",
+    "e2e:runpod": "tsx test/runpod.e2e.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {

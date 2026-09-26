@@ -8,6 +8,9 @@ const bool = (v: string | undefined, d = false) => (v === undefined || v === '' 
 const production = env.NODE_ENV === 'production';
 const devMode = bool(env.MOCK_PROVIDERS) || bool(env.ALLOW_DEV_TOKENS);
 
+// Dev sign-in lets anyone act as any user, and mocks fake every render: neither may reach production.
+if (production && devMode) throw new Error('MOCK_PROVIDERS and ALLOW_DEV_TOKENS are for local development only and must be unset when NODE_ENV=production.');
+
 // Signed file links are the only thing protecting local-storage files, so a guessable default is never allowed outside dev.
 if (!env.FILE_SIGNING_SECRET && !devMode) throw new Error('FILE_SIGNING_SECRET is required (a long random string). Only MOCK_PROVIDERS/ALLOW_DEV_TOKENS runs may omit it.');
 

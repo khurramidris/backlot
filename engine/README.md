@@ -1,4 +1,4 @@
-# Reelwright Studio Engine
+# Backlot engine
 
 The production half of the platform. It takes a finished screenplay (from Reelwright, or any
 front end) and turns it into finished, approved, stitched episodes rendered with **MiniMax H3**.
@@ -51,41 +51,10 @@ the shot and keeps the dialogue verbatim), or edit the H3 prompt by hand.
 - Optional music bed that ducks under dialogue.
 - Loudness at −14 LUFS; exports MP4 + SRT + poster.
 
-## Run it locally (no keys, no spend)
+## Run, test, deploy
 
-```bash
-npm install
-# Postgres 14+ running locally, then:
-MOCK_PROVIDERS=1 ALLOW_DEV_TOKENS=1 DATABASE_URL=postgres://postgres@localhost:5432/studio npm run dev
-# open http://localhost:8787/console and use the token  dev:11111111-2222-3333-4444-555555555555
-```
-Import `test/fixtures/eleventh-refill.reelwright.json`, or any Reelwright "Project backup" export.
-
-Tests:
-```bash
-npm test                         # unit tests: timing, dialogue repair, H3 rules, subtitles
-DATABASE_URL=… npx tsx test/e2e.ts   # full pipeline through the HTTP API (mock providers)
-# Real provider code against fake MiniMax/Anthropic servers that reject anything the docs forbid:
-npx tsx test/fake-providers.ts &
-MOCK_PROVIDERS=0 ANTHROPIC_API_KEY=test-key ANTHROPIC_BASE_URL=http://localhost:8790 \
-  MINIMAX_API_KEY=test-key MINIMAX_BASE_URL=http://localhost:8790 FAKE_URL=http://localhost:8790 \
-  DATABASE_URL=… npx tsx test/e2e.ts
-```
-
-## Deploy
-
-Deploy it anywhere that runs a Docker container with FFmpeg: **Railway, Render or Fly.io** (the
-`Dockerfile` installs FFmpeg). Lovable's own hosting can't run it, because the jobs run for minutes and need FFmpeg.
-
-Full checklist, environment and Stripe setup: **[docs/DEPLOY.md](docs/DEPLOY.md)**. In short:
-
-1. **Database**: give the engine its **own** Postgres (`DATABASE_URL`). Don't share the Lovable app's Supabase
-   database: both have `projects`, `episodes`, `scenes` and `shots` tables. Tables are created on first boot.
-2. **Storage**: a private S3-compatible bucket → `STORAGE_DRIVER=s3` and `S3_*`.
-3. **Sign-in**: `SUPABASE_URL` + `SUPABASE_ANON_KEY` from the app's Supabase project, so the engine can verify sessions.
-4. `FILE_SIGNING_SECRET`, `ANTHROPIC_API_KEY`, `MINIMAX_API_KEY`, `PUBLIC_BASE_URL`, `CORS_ORIGINS`, Stripe keys.
-5. One container runs both the API and the worker. To scale, run more containers with
-   `RUN_WORKER=0` for the API and `npm run worker` for workers; the queue is safe to share.
+See the repository [README](../README.md) for local development and tests, and
+[docs/DEPLOY.md](../docs/DEPLOY.md) for production. Every setting is listed in [env.sample](env.sample).
 
 ## Costs, at MiniMax list prices (check before launch)
 
@@ -115,6 +84,8 @@ project (`PATCH /v1/projects/:id {resolution}`) rather than planning to "upscale
 | `src/pipeline/compiler.ts` | shot plan → H3 prompt + request, H3 rule validation |
 | `src/pipeline/render.ts` | submit / poll / download / verify takes |
 | `src/pipeline/assemble.ts` | final cut, subtitles, loudness, music |
-| `src/providers/*` | Claude, MiniMax (H3, image-01, voice design), Gemini, OpenAI, mocks |
-| `src/server.ts` | REST API · `public/console.html` review console |
-| `docs/LOVABLE.md` | how the Lovable front end talks to this engine |
+| `src/providers/*` | Claude, MiniMax (H3, image-01, voice design), RunPod (our H3), Gemini, OpenAI, mocks |
+| `src/pipeline/writer.ts` + `autopilot.ts` | prompt → script, and the stage machine that runs a project to a finished film |
+| `src/billing.ts` | credits, render holds, Stripe |
+| `src/capacity.ts` | RunPod warm-pool controller |
+| `src/server.ts` | REST API, the web app, `public/console.html` review console |

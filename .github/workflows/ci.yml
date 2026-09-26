@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults: { run: { working-directory: engine } }
+    env: { PGHOST: localhost, PGUSER: postgres }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: engine/package-lock.json }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Pipeline, step by step
+        run: createdb e2e && DATABASE_URL=postgres://postgres@localhost:5432/e2e PORT=8801 npx tsx test/e2e.ts
+      - name: Prompt to paid film (credits, Stripe, autopilot)
+        run: createdb vibe && DATABASE_URL=postgres://postgres@localhost:5432/vibe PORT=8802 npx tsx test/vibe.e2e.ts
+      - name: Video on RunPod (fake endpoint), scaling, cancel
+        run: createdb runpod && DATABASE_URL=postgres://postgres@localhost:5432/runpod PORT=8803 npx tsx test/runpod.e2e.ts
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  gpu-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: gpu-worker } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python selftest.py
+
+  image:
+    needs: [engine, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t backlot .
+      - name: Refuses to boot in production with dev settings
+        run: |
+          ! docker run --rm --network host -e ALLOW_DEV_TOKENS=1 -e FILE_SIGNING_SECRET=x backlot
+      - name: Serves the app and the API
+        run: |
+          docker run -d --name backlot --network host \
+            -e NODE_ENV=development -e MOCK_PROVIDERS=1 -e ALLOW_DEV_TOKENS=1 \
+            -e DATABASE_URL=postgres://postgres@localhost:5432/postgres \
+            -e SUPABASE_URL=https://example.supabase.co -e SUPABASE_ANON_KEY=anon backlot
+          for i in $(seq 1 30); do curl -sf localhost:8787/health && break; sleep 2; done
+          curl -sf localhost:8787/ | grep -q '<div id="root">'
+          curl -sf localhost:8787/dashboard | grep -q '<div id="root">'
+          curl -sf localhost:8787/app-config.json | grep -q supabaseUrl
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8787/v1/projects)" = 401
+      - if: failure()
+        run: docker logs backlot || true
