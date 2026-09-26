@@ -22,6 +22,8 @@ const safeKey = (key: string) => {
   return key;
 };
 
+/** Upload links sign a different message, so a download link can never be used to upload. */
+export const PUT = 'put:';
 function sign(key: string, exp: number) {
   return createHmac('sha256', config.storage.signingSecret).update(`${key}\n${exp}`).digest('base64url');
 }
@@ -37,6 +39,8 @@ interface Driver {
   exists(key: string): Promise<boolean>;
   del(key: string): Promise<void>;
   url(key: string, ttl?: number): Promise<string>;
+  /** A URL an outside worker can PUT one file to. */
+  uploadUrl(key: string, mime: string, ttl: number): Promise<string>;
   /** Absolute path on disk if the driver is local (lets FFmpeg read without copying). */
   localPath(key: string): string | null;
 }
@@ -51,6 +55,10 @@ class LocalDriver implements Driver {
   async url(key: string, ttl = config.storage.urlTtlSeconds) {
     const exp = Math.floor(Date.now() / 1000) + ttl;
     return `${config.publicBaseUrl}/files/${encodeURI(key)}?exp=${exp}&sig=${sign(key, exp)}`;
+  }
+  async uploadUrl(key: string, _mime: string, ttl: number) {
+    const exp = Math.floor(Date.now() / 1000) + ttl;
+    return `${config.publicBaseUrl}/files/${encodeURI(key)}?exp=${exp}&sig=${sign(PUT + key, exp)}`;
   }
   localPath(key: string) { return this.p(key); }
   stream(key: string) { return createReadStream(this.p(key)); }
@@ -76,6 +84,9 @@ class S3Driver implements Driver {
   async url(key: string, ttl = config.storage.urlTtlSeconds) {
     return getSignedUrl(this.c, new GetObjectCommand({ Bucket: this.b, Key: safeKey(key) }), { expiresIn: Math.min(ttl, 7 * 86400) });
   }
+  async uploadUrl(key: string, mime: string, ttl: number) {
+    return getSignedUrl(this.c, new PutObjectCommand({ Bucket: this.b, Key: safeKey(key), ContentType: mime }), { expiresIn: Math.min(ttl, 7 * 86400) });
+  }
   localPath() { return null; }
 }
 
@@ -88,6 +99,7 @@ export const storage = {
   exists: (key: string) => driver.exists(key),
   del: (key: string) => driver.del(key),
   url: (key: string, ttl?: number) => driver.url(key, ttl),
+  uploadUrl: (key: string, mime: string, ttl = 6 * 3600) => driver.uploadUrl(key, mime, ttl),
   localPath: (key: string) => driver.localPath(key),
   stream: (key: string) => (driver as LocalDriver).stream(key),
 
@@ -118,6 +130,7 @@ export const storage = {
 
 /** Fetch a URL into storage (used to copy MiniMax output before its link expires). */
 export async function downloadTo(key: string, url: string) {
+  if (url === `storage:${key}`) return 0; // the worker uploaded straight to the final key
   if (url.startsWith('storage:')) { // mock provider output already in our storage
     const buf = await driver.get(url.slice(8));
     await storage.put(key, buf, mimeOf(key));

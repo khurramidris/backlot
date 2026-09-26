@@ -7,6 +7,7 @@ import { planEpisode, reviseShot } from './pipeline/shots.js';
 import { submitTake, pollTake, takeFailedHook, queueRender } from './pipeline/render.js';
 import { assembleCut } from './pipeline/assemble.js';
 import { runAutopilot, autopilotFailed } from './pipeline/autopilot.js';
+import { capacityTick } from './capacity.js';
 import { sql } from './db.js';
 
 export function registerJobs() {
@@ -33,4 +34,5 @@ export function registerJobs() {
   register('cut.assemble', (p, ctx) => assembleCut(p.cutId, ctx.progress));
   register('project.autopilot', (p, ctx) => runAutopilot(p.projectId, ctx));
   register('project.autopilot:failed', autopilotFailed);
+  register('system.capacity', () => capacityTick());
 }

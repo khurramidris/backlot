@@ -61,7 +61,8 @@ export const config = {
     baseUrl: (env.MINIMAX_BASE_URL || 'https://api.minimax.io').replace(/\/$/, ''),
     videoModel: env.MINIMAX_VIDEO_MODEL || 'MiniMax-H3',
     imageModel: env.MINIMAX_IMAGE_MODEL || 'image-01',
-    maxConcurrentVideo: num(env.MINIMAX_MAX_CONCURRENT, 10), // paid tier allows ~15; keep headroom
+    // Renders in flight at the provider at once (RunPod: roughly max workers × 2, so its queue stays short).
+    maxConcurrentVideo: num(env.VIDEO_MAX_INFLIGHT, num(env.MINIMAX_MAX_CONCURRENT, 10)),
     maxConcurrentPerUser: num(env.MAX_ACTIVE_RENDERS_PER_USER, 6), // one customer can't take every render slot
     pollSeconds: num(env.MINIMAX_POLL_SECONDS, 10),
     taskTimeoutMinutes: num(env.MINIMAX_TASK_TIMEOUT_MIN, 30),
@@ -69,6 +70,27 @@ export const config = {
     // from the internet; 'inline' sends base64 data URIs (≤64 MB per request). 'auto' picks.
     mediaMode: (env.MINIMAX_MEDIA_MODE || 'auto') as 'auto' | 'url' | 'inline',
   },
+
+  // Which service renders video: MiniMax's API, or our own H3 deployment on RunPod Serverless.
+  videoProvider: (env.VIDEO_PROVIDER || 'minimax') as 'minimax' | 'runpod',
+
+  runpod: {
+    apiKey: env.RUNPOD_API_KEY || '',
+    endpointId: env.RUNPOD_ENDPOINT_ID || '',
+    apiBase: (env.RUNPOD_API_BASE || 'https://api.runpod.ai/v2').replace(/\/$/, ''),
+    restBase: (env.RUNPOD_REST_BASE || 'https://rest.runpod.io/v1').replace(/\/$/, ''),
+    executionTimeoutSec: num(env.RUNPOD_EXECUTION_TIMEOUT_SEC, 1800),
+    gpuPricePerSecond: num(env.RUNPOD_GPU_PRICE_PER_SECOND, 0), // what one worker-second costs us, for margin reports
+    // Warm-pool controller: keep GPUs warm while customers are active, scale to zero when idle.
+    manageScaling: bool(env.RUNPOD_MANAGE_SCALING, false),
+    warmWorkers: num(env.RUNPOD_WARM_WORKERS, 1),
+    warmMinutes: num(env.RUNPOD_WARM_MINUTES, 15),
+    maxWorkers: num(env.RUNPOD_MAX_WORKERS, 5),
+    jobsPerWorker: num(env.RUNPOD_JOBS_PER_WORKER, 2),
+    tickSeconds: num(env.RUNPOD_CAPACITY_TICK_SECONDS, 60),
+  },
+
+  admins: (env.ADMIN_USER_IDS || '').split(',').map((s) => s.trim()).filter(Boolean),
 
   images: {
     provider: (env.IMAGE_PROVIDER || 'minimax') as 'minimax' | 'gemini' | 'openai',

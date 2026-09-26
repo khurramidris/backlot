@@ -8,6 +8,7 @@ import { repairShots } from '../src/pipeline/shots.js';
 import { repair } from '../src/pipeline/breakdown.js';
 import { buildSrt, parseCutOptions } from '../src/pipeline/assemble.js';
 import { verifyStripeSignature } from '../src/billing.js';
+import { decideWorkersMin } from '../src/capacity.js';
 import { createHmac } from 'node:crypto';
 
 const SCRIPT = `INT. ASMA'S HOME - BEDROOM - NIGHT
@@ -123,4 +124,12 @@ test('cut options reject anything that could reach the FFmpeg filter graph', () 
   assert.throws(() => parseCutOptions({ music_volume: '0.2,volume=9' }, pid), /Invalid cut options/);
   assert.throws(() => parseCutOptions({ music_key: 'projects/someone-else/music/a.mp3' }, pid), /must be a music file uploaded to this project/);
   assert.ok(parseCutOptions({ music_key: `projects/${pid}/music/1.mp3` }, pid));
+});
+
+test('RunPod warm pool: zero when idle, warm when active, grows with the queue, never above the cap', () => {
+  const cfg = { warmWorkers: 1, maxWorkers: 4, jobsPerWorker: 2 };
+  assert.equal(decideWorkersMin({ ...cfg, active: 0, recent: 0 }), 0, 'idle: scale to zero');
+  assert.equal(decideWorkersMin({ ...cfg, active: 0, recent: 3 }), 1, 'recently active: stay warm');
+  assert.equal(decideWorkersMin({ ...cfg, active: 5, recent: 5 }), 3, 'deep queue: one worker per 2 renders');
+  assert.equal(decideWorkersMin({ ...cfg, active: 50, recent: 50 }), 4, 'budget cap');
 });

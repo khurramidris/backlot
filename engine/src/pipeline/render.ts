@@ -9,15 +9,23 @@ import { config } from '../config.js';
 import { storage, downloadTo } from '../storage.js';
 import { PermanentError, enqueue, type Again } from '../queue.js';
 import * as real from '../providers/minimax.js';
-import { ProviderError, type H3Request, type H3Content } from '../providers/minimax.js';
+import { ProviderError, type H3Request, type H3Content, type H3Task } from '../providers/minimax.js';
 import { mockMinimax } from '../providers/mock.js';
+import * as runpod from '../providers/runpod.js';
 import { recordUsage } from '../usage.js';
 import { debit, sellPrice, settleTake } from '../billing.js';
 import { probe, thumbnail } from '../media/ffmpeg.js';
 import { compileShot, validateH3, costOf } from './compiler.js';
 import { compileInputFor, projectAssets } from './shots.js';
 
-const mm = () => (config.mock ? mockMinimax : real);
+interface VideoApi {
+  createVideoTask(body: H3Request, o: { key: string }): Promise<string>;
+  queryVideoTask(id: string): Promise<H3Task>;
+  cancelVideoTask?(id: string): Promise<void>;
+}
+/** RunPod is always real (tests point it at a fake server); otherwise mocks replace MiniMax in dev. */
+export const mm = (): VideoApi => (config.videoProvider === 'runpod' ? runpod : config.mock ? mockMinimax : real);
+export const takeKey = (t: any) => `projects/${t.project_id}/takes/${t.id}.mp4`;
 
 /** Create a new take for a shot and queue it. */
 export async function queueRender(shotId: string, o: { resolution?: string } = {}) {
@@ -94,8 +102,8 @@ export async function submitTake(takeId: string): Promise<any | Again> {
   const [shot] = await sql`select * from shots where id = ${t.shot_id}`;
   const { body, loggable } = await buildRequest(shot, t.resolution);
   try {
-    const taskId = await mm().createVideoTask(body);
-    await sql`update takes set status = 'submitted', provider_task_id = ${taskId}, request = ${sql.json(loggable)}, submitted_at = now() where id = ${takeId}`;
+    const taskId = await mm().createVideoTask(body, { key: takeKey(t) });
+    await sql`update takes set status = 'submitted', provider = ${config.videoProvider}, provider_task_id = ${taskId}, request = ${sql.json(loggable)}, submitted_at = now() where id = ${takeId}`;
     await sql`update shots set status = 'rendering', updated_at = now() where id = ${shot.id}`;
     await enqueue('take.poll', { takeId }, { projectId: t.project_id, delaySec: config.minimax.pollSeconds, maxAttempts: 8 });
     return { task_id: taskId };
@@ -129,7 +137,8 @@ export async function pollTake(takeId: string): Promise<any | Again> {
   const [shot] = await sql`select duration from shots where id = ${t.shot_id}`;
   const outSec = +(task.usage?.output_seconds ?? shot.duration);
   const inSec = +(task.usage?.input_seconds ?? 0);
-  const cost = config.mock ? 0 : costOf(t.resolution, outSec + inSec);
+  // RunPod reports GPU time (priced by RUNPOD_GPU_PRICE_PER_SECOND); otherwise estimate from list prices.
+  const cost = (task.usage as any)?.cost_usd || (config.mock ? 0 : costOf(t.resolution, outSec + inSec));
   const [first] = await sql`update takes set seconds = ${outSec + inSec}, cost_usd = ${cost} where id = ${takeId} and cost_usd is null returning project_id`;
   if (first) {
     const [pr] = await sql`select owner_id from projects where id = ${t.project_id}`;
@@ -137,7 +146,7 @@ export async function pollTake(takeId: string): Promise<any | Again> {
   }
 
   // Copy the video into our storage and check it is what we asked for.
-  const key = `projects/${t.project_id}/takes/${takeId}.mp4`;
+  const key = takeKey(t);
   await downloadTo(key, task.url);
   const dir = await mkdtemp(join(tmpdir(), 'take-'));
   try {

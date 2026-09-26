@@ -9,18 +9,19 @@ import { join, dirname, resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { sql, plain } from './db.js';
-import { storage, verifySignature, mimeOf, isLocalStorage } from './storage.js';
+import { storage, verifySignature, mimeOf, isLocalStorage, PUT } from './storage.js';
 import { requireUser } from './auth.js';
 import { enqueue, PermanentError } from './queue.js';
 import { createProject } from './pipeline/importer.js';
 import { queueAllAssets, approveAsset, uploadAsset } from './pipeline/assets.js';
-import { queueRender, refreshEpisodeStatus } from './pipeline/render.js';
+import { queueRender, refreshEpisodeStatus, mm } from './pipeline/render.js';
 import { requestCut } from './pipeline/assemble.js';
 import { costOf } from './pipeline/compiler.js';
 import { projectSpend } from './usage.js';
 import { ensureAccount, balanceOf, createCheckout, verifyStripeSignature, handleStripeEvent, settleTake, sellPrice, debit } from './billing.js';
 import { resolveBrief } from './pipeline/writer.js';
 import { startAutopilot } from './pipeline/autopilot.js';
+import { endpointHealth } from './providers/runpod.js';
 
 type Env = { Variables: { uid: string } };
 export const app = new Hono<Env>();
@@ -30,7 +31,9 @@ const DEV_USER = '11111111-2222-3333-4444-555555555555';
 const tooBig = (c: Context) => c.json({ error: { code: 'too_large', message: 'Request body is too large.' } }, 413);
 const jsonLimit = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooBig });
 const fileLimit = bodyLimit({ maxSize: 30 * 1024 * 1024, onError: tooBig });
-app.use('*', (c, next) => (/multipart\/form-data/i.test(c.req.header('content-type') || '') ? fileLimit : jsonLimit)(c, next));
+const uploadLimit = bodyLimit({ maxSize: 500 * 1024 * 1024, onError: tooBig }); // rendered clips PUT by the GPU worker
+app.use('*', (c, next) => (c.req.method === 'PUT' && c.req.path.startsWith('/files/') ? uploadLimit
+  : /multipart\/form-data/i.test(c.req.header('content-type') || '') ? fileLimit : jsonLimit)(c, next));
 
 app.use('*', cors({ origin: config.corsOrigins.includes('*') ? '*' : config.corsOrigins, allowHeaders: ['authorization', 'content-type', 'x-engine-key', 'x-user-id'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] }));
 
@@ -43,6 +46,15 @@ app.onError((e: any, c) => {
 app.get('/health', async (c) => { await sql`select 1`; return c.json({ ok: true, mock: config.mock }); });
 
 // Signed file access for local storage (S3 storage hands out presigned URLs instead).
+// Local storage only: the GPU worker uploads a rendered clip to a signed upload link.
+app.put('/files/*', async (c) => {
+  const key = decodeURI(c.req.path.slice('/files/'.length));
+  if (!isLocalStorage) return c.text('not found', 404);
+  if (!verifySignature(PUT + key, +(c.req.query('exp') || 0), c.req.query('sig') || '')) return c.text('link expired or invalid', 403);
+  await storage.put(key, Buffer.from(await c.req.arrayBuffer()), c.req.header('content-type') || mimeOf(key));
+  return c.body(null, 200);
+});
+
 app.get('/files/*', async (c) => {
   const key = decodeURI(c.req.path.slice('/files/'.length));
   if (!verifySignature(key, +(c.req.query('exp') || 0), c.req.query('sig') || '')) return c.text('link expired or invalid', 403);
@@ -204,6 +216,8 @@ v1.delete('/projects/:id', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
   const open = await sql`select id from takes where project_id = ${p.id} and not settled and hold_usd > 0`;
   for (const t of open) await settleTake(t.id, false); // give back credit held for renders that will never be delivered
+  const running = await sql`select provider_task_id from takes where project_id = ${p.id} and status in ('submitted','running') and provider_task_id is not null`;
+  for (const t of running) await mm().cancelVideoTask?.(t.provider_task_id); // and stop paying for the GPU time
   await sql`delete from projects where id = ${p.id}`;
   return c.json({ deleted: true });
 });
@@ -433,6 +447,16 @@ v1.get('/projects/:id/estimate', async (c) => {
     // What the customer pays in credits (the numbers above are our provider costs).
     customer: { per_second: config.credits.sellPerSecond[res] ?? config.credits.sellPerSecond['768P'], to_finish_usd: sellPrice(res, s.todo_secs), full_runtime_usd: sellPrice(res, s.secs) },
   });
+});
+
+// Operators only (ADMIN_USER_IDS): render queue, RunPod workers and the warm-pool controller's last decision.
+v1.get('/admin/capacity', async (c) => {
+  if (!config.admins.includes(c.get('uid'))) throw nf('page');
+  const [queue] = await sql`select count(*) filter (where status = 'pending')::int pending, count(*) filter (where status = 'submitted')::int submitted,
+    count(*) filter (where status = 'running')::int running from takes`;
+  const [ctl] = await sql`select progress, updated_at from jobs where kind = 'system.capacity' order by id desc limit 1`;
+  const runpod = config.videoProvider === 'runpod' ? await endpointHealth().catch((e: any) => ({ error: e.message })) : null;
+  return c.json(plain({ provider: config.videoProvider, queue, runpod, controller: ctl ?? null }));
 });
 
 v1.get('/me', async (c) => {
