@@ -1,25 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Check, Clapperboard } from "lucide-react";
+import { ArrowRight, Check, Play } from "lucide-react";
 
 import heroImage from "@/assets/hero-stage.jpg";
+import { Logo, StoryLine } from "@/components/brand/Logo";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import { usd } from "@/lib/engine";
 import { publicPlan } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
+
+const DESCRIPTION =
+  "Describe a story in a sentence. Backlot writes, casts, films and edits it into a finished microdrama, short film, web series or YouTube video.";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Backlot — type a story, get a film" },
-      {
-        name: "description",
-        content:
-          "Describe a story in a sentence. Backlot writes, casts, films and edits it into a finished microdrama, short film, web series or YouTube video.",
-      },
-      { property: "og:title", content: "Backlot — type a story, get a film" },
-      {
-        property: "og:description",
-        content:
-          "Describe a story in a sentence. Backlot writes, casts, films and edits it into a finished microdrama, short film, web series or YouTube video.",
-      },
+      { title: "Backlot — an open studio for every story" },
+      { name: "description", content: DESCRIPTION },
+      { property: "og:title", content: "Backlot — an open studio for every story" },
+      { property: "og:description", content: DESCRIPTION },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -27,164 +25,292 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-/** The four production stages, presented as a numbered pipeline rather than loose cards. */
-const PIPELINE = [
+const STEPS = [
   {
-    index: "01",
-    stage: "Write",
+    n: "01",
     title: "One sentence in",
     body: "Your idea becomes a full script with a hook, turns and an ending.",
   },
   {
-    index: "02",
-    stage: "Cast",
-    title: "Faces that stay put",
-    body: "Characters, wardrobe and sets are locked so they look the same in every shot.",
+    n: "02",
+    title: "A cast that stays put",
+    body: "Characters, wardrobe and sets are locked, so they look the same in every shot.",
   },
   {
-    index: "03",
-    stage: "Approve",
+    n: "03",
     title: "See the price first",
     body: "Read the script, meet the cast, check the price. Nothing is filmed until you say go.",
   },
   {
-    index: "04",
-    stage: "Watch",
+    n: "04",
     title: "A finished film out",
     body: "Lip-synced dialogue, subtitles and a final edit. Fix any shot with a note.",
   },
 ];
 
+const FORMATS = [
+  {
+    title: "Microdrama",
+    line: "Vertical episodes that hook in three seconds.",
+    meta: "9:16 · ~75 s",
+    pos: "30% 50%",
+  },
+  {
+    title: "Short film",
+    line: "A complete story, start to finish.",
+    meta: "16:9 · 1–5 min",
+    pos: "70% 40%",
+  },
+  {
+    title: "Web series",
+    line: "Characters who come back every episode.",
+    meta: "16:9 · 2–3 episodes",
+    pos: "50% 60%",
+  },
+  {
+    title: "YouTube story",
+    line: "Hook-first storytelling for your channel.",
+    meta: "16:9 · 1–5 min",
+    pos: "90% 50%",
+  },
+];
+
+const pill =
+  "inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-colors";
+
 function Landing() {
   return (
-    <div className="tech-grid min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-6 items-center justify-center rounded-sm bg-primary">
-              <Clapperboard className="size-3.5 text-primary-foreground" />
-            </span>
-            <span className="font-display text-base font-bold tracking-tight">Backlot</span>
-          </div>
-          <nav className="flex items-center gap-6">
+    <div className="min-h-screen bg-background">
+      <Hero />
+      <HowItWorks />
+      <Formats />
+      <Pricing />
+      <section className="border-t border-border">
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-24 text-center">
+          <p className="script text-5xl text-primary sm:text-6xl">Create what’s next.</p>
+          <p className="max-w-md text-muted-foreground">
+            Your next story is one sentence away. Write it, and we’ll film it.
+          </p>
+          <Link
+            to="/auth"
+            search={{ mode: "signup" }}
+            className={cn(pill, "bg-primary text-primary-foreground hover:bg-primary/90")}
+          >
+            Start creating <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      </section>
+      <SiteFooter />
+    </div>
+  );
+}
+
+function Hero() {
+  return (
+    <section className="relative overflow-hidden bg-cinema">
+      <img
+        src={heroImage}
+        alt="A film crew on a night backlot: camera rig, monitors and a warm key light"
+        width={1920}
+        height={1088}
+        className="absolute inset-0 size-full object-cover opacity-70"
+      />
+      <div className="absolute inset-0 bg-gradient-to-r from-cinema via-cinema/80 to-cinema/10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-cinema via-cinema/10 to-cinema/60" />
+      <div className="absolute inset-0 [background-image:var(--gradient-key-light)]" />
+
+      <header className="relative z-10">
+        <div className="mx-auto flex h-20 max-w-6xl items-center justify-between gap-6 px-6">
+          <Link to="/" className="text-2xl" aria-label="Backlot home">
+            <Logo />
+          </Link>
+          <nav className="flex items-center gap-2 sm:gap-6">
+            <a
+              href="#how"
+              className="hidden text-sm text-foreground/75 hover:text-foreground md:inline"
+            >
+              How it works
+            </a>
+            <a
+              href="#formats"
+              className="hidden text-sm text-foreground/75 hover:text-foreground md:inline"
+            >
+              Formats
+            </a>
             <a
               href="#pricing"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+              className="hidden text-sm text-foreground/75 hover:text-foreground md:inline"
             >
               Pricing
             </a>
             <Link
               to="/auth"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+              className="rounded-full border border-foreground/40 px-4 py-1.5 text-sm font-medium hover:border-foreground"
             >
-              Sign in
+              Log in
+            </Link>
+            <Link
+              to="/auth"
+              search={{ mode: "signup" }}
+              className="hidden rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:inline-flex"
+            >
+              Get started
             </Link>
           </nav>
         </div>
       </header>
 
-      <section className="stage-light relative overflow-hidden">
-        <div className="mx-auto grid max-w-6xl items-center gap-14 px-6 py-20 lg:grid-cols-2 lg:gap-20 lg:py-28">
-          <div className="space-y-8">
-            <div className="inline-flex items-center gap-3">
-              <span className="h-px w-8 bg-primary" />
-              <span className="meta-label font-semibold text-primary">AI film production</span>
-            </div>
-
-            <h1 className="text-5xl font-bold leading-[1.06] sm:text-6xl xl:text-7xl">
-              Type a story. Get a <span className="text-primary">film</span>.
-            </h1>
-
-            <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
-              Microdramas, short films, web series and YouTube stories from a single prompt. Backlot
-              writes, casts, films and edits it, and you approve the script and price before
-              anything is rendered.
-            </p>
-
-            <div className="pt-2">
-              <Link
-                to="/auth"
-                className="group inline-flex items-center rounded-sm bg-primary px-10 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground shadow-[var(--shadow-glow)] transition-colors hover:bg-primary/90"
-              >
-                Make your first video
-                <ArrowRight className="ml-3 size-4 transition-transform group-hover:translate-x-1" />
-              </Link>
-            </div>
+      <div className="relative z-10 mx-auto grid max-w-6xl gap-10 px-6 pb-24 pt-14 sm:pt-20 lg:grid-cols-[1fr_auto] lg:pb-32">
+        <div>
+          <StoryLine className="text-foreground/70" />
+          <span className="brand-dash mt-4" />
+          <h1 className="sr-only">Backlot: an open studio for every story</h1>
+          <div className="mt-10 text-[64px] text-ivory sm:text-[104px] lg:text-[128px]" aria-hidden>
+            <Logo />
           </div>
-
-          <div className="viewfinder group relative">
-            <div className="grain relative aspect-[4/3] overflow-hidden border border-border-strong bg-surface">
-              <img
-                src={heroImage}
-                alt="Film crew on a night backlot with camera rig, monitors and warm key light"
-                width={1920}
-                height={1088}
-                className="size-full object-cover opacity-85 grayscale transition-all duration-700 group-hover:opacity-100 group-hover:grayscale-0"
-              />
-              <span className="absolute right-4 top-4 z-10 bg-background/60 px-2 py-1 font-mono text-[10px] tracking-widest text-foreground/60 backdrop-blur-sm">
-                CAM A // 24FPS
+          <p className="mt-8 font-display text-2xl font-bold tracking-tight sm:text-3xl">
+            An open studio for every story.
+          </p>
+          <p className="mt-4 max-w-xl text-lg leading-relaxed text-foreground/75">
+            Type a story, get a film. Microdramas, short films, web series and YouTube stories from
+            a single prompt. You approve the script and the price before anything is filmed.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Link
+              to="/auth"
+              search={{ mode: "signup" }}
+              className={cn(pill, "bg-primary pr-2 text-primary-foreground hover:bg-primary/90")}
+            >
+              Start creating
+              <span className="flex size-7 items-center justify-center rounded-full bg-primary-foreground text-primary">
+                <Play className="size-3.5 fill-current" />
               </span>
-            </div>
+            </Link>
+            <a
+              href="#how"
+              className={cn(pill, "border border-foreground/40 hover:border-foreground")}
+            >
+              <span className="flex size-5 items-center justify-center rounded-full border border-current">
+                <Play className="size-2.5 fill-current" />
+              </span>
+              See how it works
+            </a>
           </div>
         </div>
-      </section>
+        <div className="hidden flex-col items-end justify-end gap-10 lg:flex">
+          <p className="script max-w-[16rem] text-right text-5xl text-ivory">
+            Make something worth watching.
+            <span className="brand-dash ml-auto mt-4 w-24 -rotate-3" />
+          </p>
+          <div className="text-right">
+            <p className="meta-label leading-loose text-foreground/80">
+              Same stories.
+              <br />
+              New worlds.
+            </p>
+            <span className="brand-dash ml-auto mt-3" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-      <section className="mx-auto max-w-6xl px-6 pb-28">
-        <div className="grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
-          {PIPELINE.map((step) => (
-            <div
-              key={step.title}
-              className="group bg-background p-8 transition-colors hover:bg-surface"
-            >
-              <div className="mb-8 font-mono text-[10px] tracking-[0.2em] text-primary">
-                {step.index} / {step.stage.toUpperCase()}
+function HowItWorks() {
+  return (
+    <section id="how" className="theme-ivory scroll-mt-4">
+      <div className="mx-auto max-w-6xl px-6 py-24">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <span className="meta-label">How it works</span>
+            <h2 className="mt-3 text-4xl sm:text-5xl">From idea to first shot.</h2>
+            <span className="brand-dash mt-5" />
+          </div>
+          <p className="max-w-sm text-muted-foreground">
+            A writers’ room, casting, a film crew and an editor, working on your story in minutes,
+            not months.
+          </p>
+        </div>
+        <div className="mt-14 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+          {STEPS.map((s) => (
+            <div key={s.n} className="bg-card p-8">
+              <div className="font-display text-5xl font-black tracking-tight text-primary">
+                {s.n}
               </div>
-              <h2 className="text-lg font-bold">{step.title}</h2>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{step.body}</p>
+              <h3 className="mt-8 text-lg">{s.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
             </div>
           ))}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
 
-      <Pricing />
-
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-          <span className="meta-label">Backlot — the AI film studio</span>
-          <nav className="flex gap-6">
-            <Link to="/terms" className="meta-label transition-colors hover:text-primary">
-              Terms
-            </Link>
-            <Link to="/privacy" className="meta-label transition-colors hover:text-primary">
-              Privacy
-            </Link>
-          </nav>
+/** Title cards in the style of the brand's series artwork: condensed headline, orange dash, episode tag. */
+function Formats() {
+  return (
+    <section id="formats" className="scroll-mt-4">
+      <div className="mx-auto max-w-6xl px-6 py-24">
+        <span className="meta-label">Formats</span>
+        <h2 className="mt-3 text-4xl sm:text-5xl">Same stories. New worlds.</h2>
+        <span className="brand-dash mt-5" />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {FORMATS.map((f, i) => (
+            <article
+              key={f.title}
+              className="group relative flex aspect-[3/4] flex-col justify-end overflow-hidden rounded-xl border border-border bg-cinema p-6"
+            >
+              <img
+                src={heroImage}
+                alt=""
+                aria-hidden
+                style={{ objectPosition: f.pos }}
+                className="absolute inset-0 size-full object-cover opacity-55 transition-transform duration-700 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-cinema via-cinema/70 to-cinema/10" />
+              <div className="relative">
+                <p className="meta-label text-foreground/70">A Backlot original</p>
+                <h3 className="mt-3 font-logo text-4xl font-normal uppercase leading-[0.95] tracking-normal text-ivory">
+                  {f.title}
+                </h3>
+                <span className="brand-dash mt-4" />
+                <p className="mt-4 text-sm text-foreground/80">{f.line}</p>
+                <p className="meta-label mt-4 text-foreground/60">
+                  Ep. {String(i + 1).padStart(2, "0")} · {f.meta}
+                </p>
+              </div>
+            </article>
+          ))}
         </div>
-      </footer>
-    </div>
+      </div>
+    </section>
   );
 }
 
 function Pricing() {
   const plan = publicPlan;
   return (
-    <section id="pricing" className="border-t border-border">
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 lg:grid-cols-2">
+    <section id="pricing" className="relative scroll-mt-4 overflow-hidden border-t border-border">
+      <div className="absolute inset-0 [background-image:var(--gradient-key-light)]" />
+      <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 lg:grid-cols-2">
         <div>
-          <div className="inline-flex items-center gap-3">
-            <span className="h-px w-8 bg-primary" />
-            <span className="meta-label font-semibold text-primary">Pricing</span>
-          </div>
-          <h2 className="mt-6 text-4xl font-bold leading-tight">One plan. Everything included.</h2>
-          <p className="mt-4 max-w-md text-muted-foreground">
+          <span className="meta-label">Pricing</span>
+          <h2 className="mt-3 text-4xl leading-tight sm:text-5xl">
+            One plan. Everything included.
+          </h2>
+          <span className="brand-dash mt-5" />
+          <p className="mt-6 max-w-md text-muted-foreground">
             Your monthly credits cover writing, casting, filming and editing. You see the price of
             every film and approve it before anything is rendered. Need more? Top up any time.
           </p>
         </div>
-        <div className="border border-primary/50 bg-surface p-8 shadow-[var(--shadow-glow)]">
+        <div className="rounded-xl border border-primary/50 bg-card p-8 shadow-[var(--shadow-glow)]">
           <div className="meta-label text-primary">{plan.name}</div>
           <div className="mt-3 flex items-baseline gap-1">
-            <span className="text-5xl font-bold">{usd(plan.price_usd)}</span>
+            <span className="font-display text-6xl font-black tracking-tight">
+              {usd(plan.price_usd)}
+            </span>
             <span className="text-muted-foreground">/month</span>
           </div>
           <ul className="mt-6 space-y-3 text-sm">
@@ -204,7 +330,10 @@ function Pricing() {
           <Link
             to="/auth"
             search={{ mode: "signup" }}
-            className="mt-8 inline-flex w-full items-center justify-center rounded-sm bg-primary px-6 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground transition-colors hover:bg-primary/90"
+            className={cn(
+              pill,
+              "mt-8 w-full bg-primary text-primary-foreground hover:bg-primary/90",
+            )}
           >
             Get started
           </Link>

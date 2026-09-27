@@ -1,3 +1,9 @@
+// Brand fonts, bundled with the app (no font CDN): Inter for the interface, Inter Tight for headlines,
+// Anton for the wordmark and title cards, Caveat for hand-written taglines.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/inter-tight";
+import "@fontsource/anton/400.css";
+import "@fontsource/caveat/700.css";
 import "./styles.css";
 
 import { RouterProvider } from "@tanstack/react-router";

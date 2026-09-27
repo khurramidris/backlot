@@ -5,16 +5,20 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Design system — "Backlot / Precision Industrial".
- * Charcoal stage greys, a single ember key light, machined hairlines and
- * monospaced production metadata. All color values are oklch tokens.
- * Never hardcode colors in components.
+ * Design system: the Backlot brand (docs/brand).
+ * Cinema Black stage, Projection Ivory type, one Studio Orange accent, with Marquee Yellow and
+ * Celluloid in support. Bold grotesk headlines, Inter for the interface, a condensed wordmark and
+ * a hand-written script for taglines. Colors live in these tokens: never hardcode them in components.
  */
 
 @theme inline {
-  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* Neue Haas Grotesk is the brand display face; Inter Tight is its free stand-in until it's licensed. */
+  --font-display:
+    "Neue Haas Grotesk Display", "Inter Tight Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-logo: "Anton", "Impact", ui-sans-serif, sans-serif;
+  --font-script: "Caveat", "Segoe Script", cursive;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --radius-sm: calc(var(--radius) - 1px);
   --radius-md: var(--radius);
@@ -64,74 +68,113 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* The brand palette by name, for the few places that need a specific brand colour. */
+  --color-cinema: var(--cinema);
+  --color-ivory: var(--ivory);
+  --color-studio: var(--studio);
+  --color-marquee: var(--marquee);
+  --color-celluloid: var(--celluloid);
 }
 
 :root {
-  --radius: 0.25rem;
+  --radius: 0.5rem;
 
-  /* Charcoal stage */
-  --background: oklch(0.183 0.002 60);
-  --foreground: oklch(0.975 0.002 60);
+  /* Brand palette */
+  --cinema: #0f0f0f; /* Cinema Black: depth, focus */
+  --ivory: #f4f1e5; /* Projection Ivory: clean, open */
+  --studio: #ff5e2a; /* Studio Orange: action, creativity */
+  --marquee: #f7c342; /* Marquee Yellow: optimism, spark */
+  --celluloid: #8f3f32; /* Celluloid: drama, warmth */
 
-  --surface: oklch(0.223 0.003 60);
-  --surface-raised: oklch(0.268 0.003 60);
+  --background: var(--cinema);
+  --foreground: var(--ivory);
 
-  --card: oklch(0.215 0.003 60);
-  --card-foreground: oklch(0.975 0.002 60);
-  --popover: oklch(0.228 0.003 60);
-  --popover-foreground: oklch(0.975 0.002 60);
+  --surface: #161616;
+  --surface-raised: #1f1f1f;
 
-  /* Ember key light */
-  --primary: oklch(0.635 0.168 39);
-  --primary-foreground: oklch(0.985 0.004 60);
+  --card: #151515;
+  --card-foreground: var(--ivory);
+  --popover: #1a1a1a;
+  --popover-foreground: var(--ivory);
 
-  --secondary: oklch(0.285 0.003 60);
-  --secondary-foreground: oklch(0.955 0.002 60);
+  --primary: var(--studio);
+  --primary-foreground: #fffaf3;
 
-  --muted: oklch(0.252 0.003 60);
-  --muted-foreground: oklch(0.706 0.003 60);
+  --secondary: #222222;
+  --secondary-foreground: var(--ivory);
 
-  --accent: oklch(0.3 0.004 60);
-  --accent-foreground: oklch(0.975 0.002 60);
+  --muted: #1c1c1c;
+  --muted-foreground: #a39e92;
 
-  --destructive: oklch(0.6 0.19 27);
-  --destructive-foreground: oklch(0.98 0.004 60);
-  --success: oklch(0.7 0.13 158);
-  --success-foreground: oklch(0.18 0.03 158);
-  --warning: oklch(0.78 0.13 75);
-  --warning-foreground: oklch(0.2 0.03 75);
+  --accent: #242424;
+  --accent-foreground: var(--ivory);
 
-  --border: oklch(0.31 0.003 60);
-  --border-strong: oklch(0.42 0.003 60);
-  --input: oklch(0.33 0.003 60);
-  --ring: oklch(0.635 0.168 39);
+  --destructive: #e4553f;
+  --destructive-foreground: #fffaf3;
+  --success: #52c08a;
+  --success-foreground: var(--cinema);
+  --warning: var(--marquee);
+  --warning-foreground: var(--cinema);
 
-  --chart-1: oklch(0.635 0.168 39);
-  --chart-2: oklch(0.72 0.1 60);
-  --chart-3: oklch(0.7 0.13 158);
-  --chart-4: oklch(0.55 0.004 60);
-  --chart-5: oklch(0.82 0.06 45);
+  --border: #272727;
+  --border-strong: #3b3b3b;
+  --input: #2e2e2e;
+  --ring: var(--studio);
 
-  --sidebar: oklch(0.2 0.003 60);
-  --sidebar-foreground: oklch(0.955 0.002 60);
-  --sidebar-primary: oklch(0.635 0.168 39);
-  --sidebar-primary-foreground: oklch(0.985 0.004 60);
-  --sidebar-accent: oklch(0.262 0.003 60);
-  --sidebar-accent-foreground: oklch(0.96 0.002 60);
-  --sidebar-border: oklch(0.31 0.003 60);
-  --sidebar-ring: oklch(0.635 0.168 39);
+  --chart-1: var(--studio);
+  --chart-2: var(--marquee);
+  --chart-3: var(--celluloid);
+  --chart-4: #6f6b62;
+  --chart-5: var(--ivory);
 
+  --sidebar: #121212;
+  --sidebar-foreground: var(--ivory);
+  --sidebar-primary: var(--studio);
+  --sidebar-primary-foreground: #fffaf3;
+  --sidebar-accent: rgb(255 94 42 / 0.12);
+  --sidebar-accent-foreground: var(--ivory);
+  --sidebar-border: #232323;
+  --sidebar-ring: var(--studio);
+
+  /* A warm sodium-lamp glow, like the brand's golden-hour backlot photography. */
   --gradient-key-light: radial-gradient(
-    110% 80% at 20% -10%,
-    oklch(0.635 0.168 39 / 0.16) 0%,
-    oklch(0.635 0.168 39 / 0.05) 34%,
-    transparent 68%
+    90% 70% at 75% 0%,
+    rgb(255 94 42 / 0.16) 0%,
+    rgb(247 195 66 / 0.05) 35%,
+    transparent 70%
   );
-  --gradient-panel: linear-gradient(162deg, oklch(0.245 0.003 60) 0%, oklch(0.198 0.003 60) 100%);
-  --shadow-stage: 0 24px 60px -28px oklch(0 0 0 / 0.85);
-  --shadow-glow:
-    0 0 0 1px oklch(0.635 0.168 39 / 0.35), 0 14px 44px -18px oklch(0.635 0.168 39 / 0.45);
-  --grid-line: oklch(0.975 0.002 60 / 0.028);
+  --gradient-panel: linear-gradient(162deg, #1b1b1b 0%, #131313 100%);
+  --shadow-stage: 0 24px 60px -28px rgb(0 0 0 / 0.9);
+  --shadow-glow: 0 0 0 1px rgb(255 94 42 / 0.35), 0 18px 48px -20px rgb(255 94 42 / 0.5);
+}
+
+/* Dark islands inside an ivory page (the footer): back to the stage colours. */
+.theme-cinema {
+  --background: var(--cinema);
+  --foreground: var(--ivory);
+  --card: #151515;
+  --surface: #161616;
+  --muted: #1c1c1c;
+  --muted-foreground: #a39e92;
+  --border: #272727;
+  --border-strong: #3b3b3b;
+  color: var(--foreground);
+}
+
+/* Ivory pages (legal) and ivory bands on the landing page, like the brand boards. */
+.theme-ivory {
+  --background: var(--ivory);
+  --foreground: var(--cinema);
+  --card: #ffffff;
+  --card-foreground: var(--cinema);
+  --surface: #ebe7d9;
+  --muted: #e9e5d6;
+  --muted-foreground: #5f5a50;
+  --border: #d9d4c3;
+  --border-strong: #bdb7a4;
+  background-color: var(--background);
+  color: var(--foreground);
 }
 
 .dark {
@@ -160,12 +203,12 @@
   h3,
   h4 {
     font-family: var(--font-display);
-    font-weight: 700;
-    letter-spacing: -0.03em;
+    font-weight: 800;
+    letter-spacing: -0.01em;
   }
 
   ::selection {
-    background-color: oklch(0.635 0.168 39 / 0.3);
+    background-color: rgb(255 94 42 / 0.35);
   }
 }
 
@@ -184,22 +227,33 @@
   color: var(--color-primary);
 }
 
-/* Faint technical grid, used behind heroes and shell backgrounds. */
-@utility tech-grid {
-  background-image:
-    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-  background-size: 56px 56px;
-}
-
-/* Small monospaced production metadata label. */
+/* Small spaced-out uppercase label: "IDEAS / SCENES / STORIES / REALITY". */
 @utility meta-label {
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  line-height: 1;
-  letter-spacing: 0.28em;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
+}
+
+/* The short Studio Orange underline that sits under taglines and headings. */
+@utility brand-dash {
+  display: block;
+  width: 2.25rem;
+  height: 3px;
+  border-radius: 1px;
+  background-color: var(--color-primary);
+}
+
+/* Hand-written tagline: "Make something worth watching." */
+@utility script {
+  font-family: var(--font-script);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.95;
+  transform: rotate(-6deg);
 }
 
 /* Camera viewfinder corner marks around framed media. */

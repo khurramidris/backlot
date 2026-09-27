@@ -113,12 +113,12 @@ function ProjectPage() {
 function Timeline({ stage }: { stage: Stage }) {
   const current = STEPS.findIndex((s) => s.stages.includes(stage));
   return (
-    <ol className="mt-8 grid grid-cols-7 gap-px border border-border bg-border text-center">
+    <ol className="mt-8 grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-border bg-border text-center">
       {STEPS.map((s, i) => {
         const done = stage === "done" || i < current;
         const active = i === current && stage !== "done";
         return (
-          <li key={s.label} className={cn("bg-background px-1 py-3", active && "bg-primary/10")}>
+          <li key={s.label} className={cn("bg-card px-1 py-3", active && "bg-primary/10")}>
             <div
               className={cn(
                 "mx-auto mb-1 flex size-5 items-center justify-center rounded-full border text-[10px]",
@@ -150,7 +150,7 @@ function Notice({ tone, children }: { tone: "warn" | "error"; children: React.Re
   return (
     <div
       className={cn(
-        "mt-6 flex gap-3 border p-4 text-sm",
+        "mt-6 flex gap-3 rounded-lg border p-4 text-sm",
         tone === "error" ? "border-destructive/50 text-destructive" : "border-primary/40",
       )}
     >
@@ -175,7 +175,7 @@ function Checkpoint({ data }: { data: ProjectDetail }) {
     onError: (err: Error) => toast.error(err.message),
   });
   return (
-    <section className="mt-8 grid gap-6 border border-primary/50 bg-surface p-6 sm:grid-cols-[1fr_auto] sm:items-center">
+    <section className="mt-8 grid gap-6 rounded-xl border border-primary/50 bg-card p-6 shadow-[var(--shadow-glow)] sm:grid-cols-[1fr_auto] sm:items-center">
       <div>
         <h2 className="text-xl font-bold">Your film is ready to shoot</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -281,7 +281,7 @@ function Finished({ data }: { data: ProjectDetail }) {
 
 function CutPlayer({ cut, vertical }: { cut: Cut | undefined; vertical: boolean }) {
   const box = cn(
-    "w-full border border-border bg-black",
+    "w-full overflow-hidden rounded-xl border border-border bg-black",
     vertical ? "aspect-[9/16]" : "aspect-video",
   );
   if (!cut?.url)
@@ -359,7 +359,7 @@ function EpisodeShots({
             [...s.takes].reverse().find((t) => t.status === "succeeded");
           const lines = s.plan.beats.flatMap((b) => b.dialogue ?? []);
           return (
-            <div key={s.id} className="border border-border bg-background">
+            <div key={s.id} className="overflow-hidden rounded-lg border border-border bg-card">
               <div
                 className={cn(
                   "relative flex items-center justify-center bg-surface",
@@ -487,7 +487,7 @@ function CastAndSets({ projectId }: { projectId: string }) {
       <h2 className="meta-label mb-4">Cast & sets</h2>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         {shown.map((a) => (
-          <figure key={a.id} className="border border-border bg-background">
+          <figure key={a.id} className="overflow-hidden rounded-lg border border-border bg-card">
             <img
               src={a.url!}
               alt={a.name}
@@ -515,7 +515,7 @@ function Scripts({ data, open }: { data: ProjectDetail; open: boolean }) {
         <details
           key={e.id}
           open={open && i === 0}
-          className="mb-3 border border-border bg-background"
+          className="mb-3 overflow-hidden rounded-lg border border-border bg-card"
         >
           <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
             {e.label}
