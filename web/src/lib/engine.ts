@@ -159,8 +159,17 @@ export type Plan = {
   storage_gb: number;
 };
 
+export type SetupCheck = {
+  area: string;
+  name: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+};
+
 export type Me = {
+  user_id: string;
   email: string | null;
+  is_admin: boolean;
   balance_usd: number;
   credits: { plan: number; topup: number; total: number };
   credits_enforced: boolean;
@@ -176,6 +185,7 @@ export const engine = {
   subscribe: () => call<{ url: string }>("POST", "/billing/subscribe", {}),
   topup: (pack: string) => call<{ url: string }>("POST", "/billing/topup", { pack }),
   portal: () => call<{ url: string }>("GET", "/billing/portal"),
+  preflight: () => call<{ checks: SetupCheck[] }>("GET", "/admin/preflight").then((r) => r.checks),
   projects: () => call<{ projects: ProjectSummary[] }>("GET", "/projects").then((r) => r.projects),
   project: (id: string) => call<ProjectDetail>("GET", `/projects/${id}`),
   create: (input: { prompt: string; format: FormatId; language?: string }) =>

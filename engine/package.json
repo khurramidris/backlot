@@ -11,7 +11,8 @@
     "test": "node --import tsx --test test/*.test.ts",
     "e2e": "tsx test/e2e.ts",
     "e2e:vibe": "tsx test/vibe.e2e.ts",
-    "e2e:runpod": "tsx test/runpod.e2e.ts"
+    "e2e:runpod": "tsx test/runpod.e2e.ts",
+    "preflight": "tsx src/preflight.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {

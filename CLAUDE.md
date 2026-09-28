@@ -53,5 +53,6 @@ signed webhooks yourself, like `engine/test/vibe.e2e.ts` does.
 
 ## Not done yet
 - H3 inference in `gpu-worker/backends/h3.py` (needs the model weights and code).
-- Production accounts (Supabase, Railway, RunPod, Lemon Squeezy): see `docs/DEPLOY.md`.
+- Production accounts (Supabase, Railway, MiniMax, Lemon Squeezy): the founder follows `docs/BETA.md`. Admins see
+  a live Setup check at `/setup` (`engine/src/preflight.ts`, also `npm --prefix engine run preflight`).
 - The legal entity details in `web/src/lib/legal.ts`, and a lawyer's review of `/terms` and `/privacy`.

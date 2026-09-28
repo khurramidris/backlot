@@ -1,5 +1,8 @@
 # Deploying Backlot
 
+**First time? Follow `docs/BETA.md`: the same setup in plain language, in order, with a built-in Setup check.**
+This file is the detailed reference.
+
 Everything below is a one-time setup. After it, every push to `main` that passes CI can be deployed as is.
 
 ```

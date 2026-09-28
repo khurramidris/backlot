@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CreditCard, House, Menu, Plus, UserRound, type LucideIcon } from "lucide-react";
+import {
+  CreditCard,
+  House,
+  ListChecks,
+  Menu,
+  Plus,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Logo } from "@/components/brand/Logo";
@@ -9,16 +17,23 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { engine, usd } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 
-const NAV: { to: "/dashboard" | "/billing" | "/account"; label: string; icon: LucideIcon }[] = [
+const NAV: {
+  to: "/dashboard" | "/billing" | "/account" | "/setup";
+  label: string;
+  icon: LucideIcon;
+}[] = [
   { to: "/dashboard", label: "Home", icon: House },
   { to: "/billing", label: "Billing", icon: CreditCard },
   { to: "/account", label: "Account", icon: UserRound },
 ];
 
+const ADMIN_NAV = [{ to: "/setup" as const, label: "Setup check", icon: ListChecks }];
+
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: engine.me, staleTime: 15_000 });
   return (
     <nav className="flex flex-col gap-1">
-      {NAV.map(({ to, label, icon: Icon }) => (
+      {[...NAV, ...(me?.is_admin ? ADMIN_NAV : [])].map(({ to, label, icon: Icon }) => (
         <Link
           key={to}
           to={to}

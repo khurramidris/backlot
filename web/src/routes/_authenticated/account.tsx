@@ -81,7 +81,23 @@ function Account() {
             <LogOut className="size-4" />
             Sign out
           </Button>
-          <p className="mt-6 text-xs text-muted-foreground">
+          {me ? (
+            <p className="mt-6 text-xs text-muted-foreground">
+              Your user id:{" "}
+              <button
+                type="button"
+                className="font-mono text-foreground underline-offset-2 hover:underline"
+                title="Copy"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(me.user_id);
+                  toast.success("User id copied.");
+                }}
+              >
+                {me.user_id}
+              </button>
+            </p>
+          ) : null}
+          <p className="mt-3 text-xs text-muted-foreground">
             To close your account and delete everything, email support from your account address.
             See the{" "}
             <Link to="/privacy" className="underline underline-offset-2">

@@ -102,6 +102,7 @@ const noPlan = await api(A, 'POST', '/v1/create', { prompt: 'A night nurse finds
 assert.equal(noPlan.error.code, 'subscription_required');
 assert.equal((await api(A, 'POST', '/v1/billing/topup', { pack: 'starter' }, [402])).error.code, 'subscription_required', 'top-ups are for subscribers');
 await api(A, 'GET', '/v1/billing/portal', undefined, [404]);
+await api(A, 'GET', '/v1/admin/preflight', undefined, [404]); // the setup check is for admins only
 const co = await api(A, 'POST', '/v1/billing/subscribe', {});
 assert.match(co.url, /^https:\/\/shop\.test\/checkout\//);
 const sent = checkouts.at(-1).data;

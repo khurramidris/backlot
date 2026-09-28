@@ -18,6 +18,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated/billing'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedSetupRouteImport } from './routes/_authenticated/setup'
 import { Route as AuthenticatedPProjectIdRouteImport } from './routes/_authenticated/p.$projectId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -64,6 +65,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedSetupRoute = AuthenticatedSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPProjectIdRoute = AuthenticatedPProjectIdRouteImport.update({
   id: '/p/$projectId',
   path: '/p/$projectId',
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AuthenticatedAccountRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/setup': typeof AuthenticatedSetupRoute
   '/p/$projectId': typeof AuthenticatedPProjectIdRoute
 }
 export interface FileRoutesByTo {
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/account': typeof AuthenticatedAccountRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/setup': typeof AuthenticatedSetupRoute
   '/p/$projectId': typeof AuthenticatedPProjectIdRoute
 }
 export interface FileRoutesById {
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/setup': typeof AuthenticatedSetupRoute
   '/_authenticated/p/$projectId': typeof AuthenticatedPProjectIdRoute
 }
 export interface FileRouteTypes {
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/billing'
     | '/dashboard'
+    | '/setup'
     | '/p/$projectId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/billing'
     | '/dashboard'
+    | '/setup'
     | '/p/$projectId'
   id:
     | '__root__'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/_authenticated/account'
     | '/_authenticated/billing'
     | '/_authenticated/dashboard'
+    | '/_authenticated/setup'
     | '/_authenticated/p/$projectId'
   fileRoutesById: FileRoutesById
 }
@@ -216,6 +228,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/setup': {
+      id: '/_authenticated/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof AuthenticatedSetupRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/p/$projectId': {
       id: '/_authenticated/p/$projectId'
       path: '/p/$projectId'
@@ -230,6 +249,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedSetupRoute: typeof AuthenticatedSetupRoute
   AuthenticatedPProjectIdRoute: typeof AuthenticatedPProjectIdRoute
 }
 
@@ -237,6 +257,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedSetupRoute: AuthenticatedSetupRoute,
   AuthenticatedPProjectIdRoute: AuthenticatedPProjectIdRoute,
 }
 

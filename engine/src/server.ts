@@ -23,6 +23,7 @@ import { paymentsEnabled, subscribeCheckout, topupCheckout, portalUrl, verifyLem
 import { resolveBrief } from './pipeline/writer.js';
 import { startAutopilot } from './pipeline/autopilot.js';
 import { endpointHealth } from './providers/runpod.js';
+import { preflight } from './preflight.js';
 
 type Env = { Variables: { uid: string; email: string | null } };
 export const app = new Hono<Env>();
@@ -475,13 +476,19 @@ v1.get('/admin/capacity', async (c) => {
   return c.json(plain({ provider: config.videoProvider, queue, runpod, controller: ctl ?? null }));
 });
 
+// Operators only: the launch checklist against the real services (the web app shows it at /setup).
+v1.get('/admin/preflight', async (c) => {
+  if (!config.admins.includes(c.get('uid'))) throw nf('page');
+  return c.json({ checks: await preflight() });
+});
+
 v1.get('/me', async (c) => {
   const uid = c.get('uid');
   await ensureAccount(uid);
   const events = await sql`select delta_usd::float delta_usd, reason, ref, created_at from credit_events where owner_id = ${uid} order by id desc limit 20`;
   const credits = await balances(uid);
   return c.json({
-    user_id: uid, email: c.get('email'), balance_usd: credits.total, credits, credits_enforced: config.credits.enforce,
+    user_id: uid, email: c.get('email'), is_admin: config.admins.includes(uid), balance_usd: credits.total, credits, credits_enforced: config.credits.enforce,
     plan: { ...(await planOf(uid)), name: config.plan.name, price_usd: config.plan.priceUsd, credits_usd: config.plan.creditsUsd, storage_gb: config.plan.storageGb },
     storage: { used_bytes: await storageUsed(uid), quota_bytes: storageQuotaBytes() },
     prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd },
