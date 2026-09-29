@@ -56,8 +56,18 @@ export const config = {
   anthropic: {
     apiKey: env.ANTHROPIC_API_KEY || '',
     baseUrl: (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, ''),
-    model: env.CLAUDE_MODEL || 'claude-opus-5-5',          // breakdown + shot planning (quality matters)
-    fastModel: env.CLAUDE_FAST_MODEL || 'claude-sonnet-5', // retake revisions, small edits
+    model: env.CLAUDE_MODEL || 'claude-opus-5-5',            // every creative and planning step
+    fastModel: env.CLAUDE_FAST_MODEL || 'claude-sonnet-5-5', // retake revisions, small edits
+    // Thinking depth: story development, screenplay, script doctor and direction use the creative level;
+    // breakdown and per-scene shot planning (many calls) use the planning level.
+    effort: (env.STORY_EFFORT || 'high') as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
+    planningEffort: (env.PLANNING_EFFORT || 'medium') as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
+    // Server-side refusal fallbacks (first-party API only; turn off behind a proxy that rejects them).
+    fallbacks: bool(env.CLAUDE_FALLBACKS, !env.ANTHROPIC_BASE_URL || /api\.anthropic\.com/.test(env.ANTHROPIC_BASE_URL)),
+    // The script doctor pass (a critique and rewrite of the first draft). Costs one more call per project.
+    scriptDoctor: bool(env.SCRIPT_DOCTOR, true),
+    // Scenes planned at once per episode (each is one Claude call).
+    planConcurrency: num(env.PLAN_CONCURRENCY, 4),
   },
 
   minimax: {

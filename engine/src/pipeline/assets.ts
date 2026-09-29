@@ -18,27 +18,91 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 const clean = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().replace(/\.$/, '');
 const styleLine = (st: any) => [st?.camera, st?.lighting, st?.grade].filter(Boolean).map(clean).join('; ');
 
-/** Build the generation prompt for an asset from its (editable) description. */
-export function assetPrompt(a: any, parent: any, p: any, grand?: any): string {
-  if (a.meta?.prompt_override) return a.meta.prompt_override;
+/**
+ * Join prompt parts in order, within the image model's limit (MiniMax image-01 reads 1500 characters).
+ * Parts marked optional are dropped, last first, until the prompt fits; required parts always stay.
+ */
+export function fitPrompt(parts: (string | { text: string; optional: true } | false | null | undefined)[], limit = 1500): string {
+  const items = parts.filter(Boolean).map((p) => (typeof p === 'string' ? { text: p, optional: false } : (p as { text: string; optional: boolean })))
+    .map((p) => ({ ...p, text: clean(p.text) })).filter((p) => p.text);
+  const join = (xs: typeof items) => xs.map((x) => (/[.!?]$/.test(x.text) ? x.text : x.text + '.')).join(' ');
+  let kept = [...items];
+  for (let i = kept.length - 1; join(kept).length > limit && i >= 0; i--) if (kept[i].optional) kept.splice(i, 1);
+  const out = join(kept);
+  return out.length > limit ? out.slice(0, limit - 1) : out;
+}
+const opt = (text: string | false | null | undefined) => (text ? { text, optional: true as const } : null);
+
+/** Build the generation prompt for an asset from its (editable) description, most important details first. */
+export function assetPrompt(a: any, parent: any, p: any, note?: string | null): string {
+  if (a.meta?.prompt_override) return note ? `${a.meta.prompt_override} Revision: ${clean(note)}.` : a.meta.prompt_override;
+  const rev = note ? `Revision requested: ${clean(note)}` : null; // required, so it survives fitting
   const st = p.style || {};
-  const world = clean(p.story_bible?.world || '').slice(0, 300);
-  const look = clean(st.look || '');
+  const world = clean(p.story_bible?.world || '').slice(0, 260);
+  const film = [st.palette && `palette of ${clean(st.palette)}`, st.texture && clean(st.texture)].filter(Boolean).join('; ');
+  const realSkin = 'Real skin with pores, fine lines and natural unevenness; natural hair with flyaways; no beauty retouching, no airbrushing, no glamour light; an ordinary real person, not a model';
   switch (a.kind) {
     case 'character': {
       const wardrobe = clean(a.meta?.default_wardrobe || '');
-      return `Photorealistic casting reference portrait of ${a.name}. ${clean(a.description)}.${wardrobe ? ` Wearing ${wardrobe}.` : ''} Head and shoulders to mid-chest, facing the camera straight on, neutral relaxed expression, eyes to lens. Even, soft, shadowless studio light; plain mid-grey seamless background; sharp focus on the face; natural skin texture, no retouching, no makeup beyond what the description says. ${world ? `The person belongs to this world: ${world}.` : ''} No text, no logos, no props.`;
+      return fitPrompt([
+        `Photorealistic casting headshot of ${clean(a.name)}`,
+        rev,
+        clean(a.description),
+        wardrobe && `Wearing ${wardrobe}`,
+        'Head and shoulders to mid-chest, facing the camera, eyes to lens, relaxed neutral expression',
+        '85mm portrait lens at eye level, soft window light from camera left with gentle fill, plain mid-grey seamless backdrop, sharp focus on the eyes',
+        realSkin,
+        opt(world && `A person of this world: ${world}`),
+        'No text, no watermark, no props, no other people',
+      ]);
     }
     case 'look':
-      return `The same person as in the reference image, identical face, age, skin, hair and build. Full-body wardrobe reference: wearing ${clean(a.description)}. Standing naturally, three-quarter view, entire body from head to shoes in frame, arms relaxed. Plain light-grey studio background, even soft light, photorealistic, sharp. ${parent ? `Identity: ${clean(parent.description)}.` : ''} No text, no other people.`;
+      return fitPrompt([
+        'Full-length wardrobe reference photograph of the same person as the reference image: identical face, age, skin, hair and build',
+        rev,
+        `Wearing ${clean(a.description)}`,
+        'Standing naturally in a relaxed three-quarter pose, the whole body from head to shoes in frame, arms loose',
+        'Plain light-grey studio backdrop, soft even light, true fabric colours and textures, wear and creases where described',
+        opt(parent && `Identity: ${clean(parent.description)}`),
+        opt(film && `Film look: ${film}`),
+        'No text, no other people',
+      ]);
     case 'location': {
       const layout = clean(a.meta?.layout || '');
-      return `Photorealistic establishing plate of an empty set: ${a.name}. ${clean(a.description)}.${layout ? ` Layout: ${layout}.` : ''} Wide lens at eye level showing the whole space so it can be reused from other angles. No people, no animals. ${styleLine(st) ? `Cinematography: ${styleLine(st)}.` : ''}${look ? ` Mood: ${look}.` : ''} ${world ? `Place and period: ${world}.` : ''} Real textures, wear and clutter; in-world signage only; no captions, no watermarks.`;
+      const ext = /EXT/.test(a.meta?.int_ext || '') && !/INT/.test(a.meta?.int_ext || '');
+      return fitPrompt([
+        `Photorealistic production-design plate of an empty film set: ${clean(a.name)}`,
+        rev,
+        clean(a.description),
+        layout && `Layout: ${layout}`,
+        `Wide 24mm lens at standing eye height, deep focus, the whole space visible with clear ${ext ? 'ground' : 'floor'} area where actors will stand`,
+        'Lived-in and real: true materials, wear, dust and everyday clutter; practical light sources visible and motivating the light',
+        opt(styleLine(st) && `Cinematography: ${styleLine(st)}`),
+        opt(film && `Film look: ${film}`),
+        opt(world && `Place and period: ${world}`),
+        'No people, no animals; any signage decorative and unreadable; no captions, no watermarks',
+      ]);
     }
     case 'set_variant':
-      return `The exact same location as the reference image — same architecture, layout, furniture, materials and signage — shown as: ${a.name.split('—').pop()?.trim()}. What changes: ${clean(a.description)}. ${parent ? `Location: ${clean(parent.description)}.` : ''} No people. ${styleLine(st) ? `Cinematography: ${styleLine(st)}.` : ''} Photorealistic film still, no captions, no watermarks.`;
+      return fitPrompt([
+        `The exact same location as the reference image, with the same architecture, layout, furniture, materials and camera position, now shown as: ${clean(a.name.split('—').pop() || a.name)}`,
+        rev,
+        `What changes: ${clean(a.description)}`,
+        'Photorealistic film still of the empty set',
+        opt(parent && `Location: ${clean(parent.description)}`),
+        opt(styleLine(st) && `Cinematography: ${styleLine(st)}`),
+        opt(film && `Film look: ${film}`),
+        'No people; any signage decorative and unreadable; no captions, no watermarks',
+      ]);
     case 'prop':
-      return `Product reference photograph of a single object: ${a.name}. ${clean(a.description)}. Centered, the whole object visible, three-quarter view, on a plain white background, soft even light, sharp detail, true colours. No hands, no text overlays, nothing else in frame.`;
+      return fitPrompt([
+        `Photorealistic hero-prop reference photograph of ${clean(a.name)}`,
+        rev,
+        clean(a.description),
+        'A single object, entirely in frame, three-quarter view, macro-sharp detail on a neutral light-grey surface, soft even light, true colours, visible wear and history',
+        opt(world && `It belongs to this world: ${world}`),
+        'No hands, no readable text, nothing else in frame',
+      ]);
     default:
       return clean(a.description);
   }
@@ -75,8 +139,7 @@ export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: s
       const [look] = await sql`select description from assets where parent_id = ${a.id} and kind = 'look' order by appearances desc limit 1`;
       if (look?.description) a.meta = { ...a.meta, default_wardrobe: look.description };
     }
-    let prompt = assetPrompt(a, parent, p);
-    if (o.note) prompt += ` Revision note: ${clean(o.note)}.`;
+    const prompt = assetPrompt(a, parent, p, o.note);
     const refs: RefImage[] = [];
     if (a.kind === 'look') { const r = await refFor(parent, 'identity'); if (r) refs.push(r); }
     if (a.kind === 'set_variant') { const r = await refFor(parent, 'place'); if (r) refs.push(r); }

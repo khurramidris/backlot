@@ -11,11 +11,14 @@ export const H3 = {
 
 export interface Beat {
   t0: number; t1: number; shot: string; angle?: string; camera?: string; action: string;
+  lens?: string; blocking?: string; performance?: string; light?: string;
   dialogue?: { who: string; line: string; delivery?: string }[];
 }
 export interface ShotPlan {
   duration: number; purpose?: string; characters: string[]; props: string[];
   beats: Beat[]; sound?: string; screen_positions?: string; warnings?: string[];
+  covers?: number[];      // action lines of the scene this shot shows
+  scene_light?: string;   // the director's light for the scene
 }
 
 const CJK = /[぀-ヿ㐀-鿿가-힯]/g;
@@ -138,25 +141,42 @@ export function compileShot(i: CompileInput): Compiled {
   const propsIn = i.props.filter((p) => plan.props.map((x) => x.toUpperCase()).includes(p.key));
   if (propsIn.length) L.push(`Key objects: ${propsIn.map((p) => `${clean(p.name)}${hasFile(p) ? ` (reference image ${images.findIndex((x) => x.id === p.id) + 1})` : ''}: ${clean(p.description)}`).join('. ')}.`);
 
-  L.push('Timeline:');
-  plan.beats.forEach((b, n) => {
-    const who = (k: string) => i.characters.find((c) => c.key === k.toUpperCase())?.name || k;
-    const head = `${b.t0}–${b.t1}s: ${n ? 'Cut to ' : ''}${[b.shot, b.angle && !/^eye.?level$/i.test(b.angle) ? `${b.angle} angle` : '', b.camera].filter(Boolean).map(clean).join(', ')}.`;
+  if (plan.scene_light) L.push(`Light: ${clean(plan.scene_light)}.`);
+
+  // The timeline is built at the richest detail that fits H3's prompt limit: level 2 has everything,
+  // level 1 drops blocking and performance notes, level 0 also drops lens and per-beat light.
+  const who = (k: string) => i.characters.find((c) => c.key === k.toUpperCase())?.name || k;
+  const timeline = (level: number) => plan.beats.map((b, n) => {
+    const lens = level >= 1 && b.lens ? (/\blens\b/i.test(b.lens) ? clean(b.lens) : `${clean(b.lens).replace(new RegExp(`^${b.shot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i'), '')} lens`) : '';
+    const framing = [b.shot, lens, b.angle && !/^eye.?level$/i.test(b.angle) ? `${b.angle} angle` : '', b.camera].filter(Boolean).map(clean).join(', ');
+    const parts = [`${b.t0}–${b.t1}s: ${n ? 'Cut to ' : ''}${framing}.`];
+    if (level >= 2 && b.blocking) parts.push(`${clean(b.blocking)}.`);
+    parts.push(`${clean(b.action)}.`);
+    if (level >= 2 && b.performance) parts.push(`${clean(b.performance)}.`);
+    if (level >= 1 && b.light) parts.push(`Light: ${clean(b.light)}.`);
     const lines = (b.dialogue || []).map((d) => `${firstName(who(d.who))}${d.delivery ? `, ${clean(d.delivery)},` : ''} says: "${String(d.line).trim().replace(/"/g, "'")}"`).join(' ');
-    L.push(`${head} ${clean(b.action)}.${lines ? ' ' + lines : ''}`);
+    if (lines) parts.push(lines);
+    return parts.join(' ');
   });
 
   const hasDialogue = plan.beats.some((b) => b.dialogue?.length);
-  L.push(`Sound: ${plan.sound ? clean(plan.sound) + '. ' : ''}${hasDialogue ? `Dialogue spoken on camera in ${project.language}, clear and lip-synced, natural pace.` : 'No dialogue.'} No background music.`);
+  const after: string[] = [];
+  after.push(`Sound: ${plan.sound ? clean(plan.sound) + '. ' : ''}${hasDialogue ? `Dialogue spoken on camera in ${project.language}, clear and lip-synced, natural pace.` : 'No dialogue.'} No background music.`);
   const look = [st.camera, st.lighting, st.grade].filter(Boolean).map(clean).join('; ');
-  if (look) L.push(`Look: ${look}.`);
-  if (st.look) L.push(`Mood: ${clean(st.look)}.`);
+  const film = [st.palette && `palette: ${clean(st.palette)}`, st.texture && clean(st.texture)].filter(Boolean).join('; ');
+  if (look || film) after.push(`Look: ${[look, film].filter(Boolean).join('. ')}.`);
+  if (st.look) after.push(`Mood: ${clean(st.look)}.`);
   const avoid = [...new Set(['on-screen text', 'subtitles', 'captions', 'watermarks', 'logos', ...String(st.negative || '').split(/[,;]/).map((x) => clean(x).toLowerCase()).filter(Boolean)])];
-  L.push(`Avoid: ${avoid.join(', ')}; faces or outfits that differ from the references; extra people in frame unless described.`);
+  after.push(`Avoid: ${avoid.join(', ')}; faces or outfits that differ from the references; extra people in frame unless described.`);
 
-  let prompt = L.join('\n');
+  let prompt = '';
+  for (const level of [2, 1, 0]) {
+    prompt = [...L, 'Timeline:', ...timeline(level), ...after].join('\n');
+    if (prompt.length <= H3.maxPromptChars) break;
+    if (level > 0) warnings.push(`prompt shortened to fit H3's limit (detail level ${level - 1})`);
+  }
   if (prompt.length > H3.maxPromptChars) {
-    // Trim the least important parts first: mood, then long descriptions.
+    // Still too long: drop the mood line, then cut.
     prompt = prompt.replace(/\nMood: [^\n]*/, '');
     if (prompt.length > H3.maxPromptChars) prompt = prompt.slice(0, H3.maxPromptChars - 1);
     warnings.push('prompt trimmed to the 7000-character limit');

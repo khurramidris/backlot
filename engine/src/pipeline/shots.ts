@@ -4,10 +4,13 @@
 
 import { sql } from '../db.js';
 import { PermanentError, type JobCtx } from '../queue.js';
-import { claudeJSON, llmCost } from '../providers/claude.js';
+import { claudeJSON, llmCost, llmUnits } from '../providers/claude.js';
+import { config } from '../config.js';
 import { recordUsage } from '../usage.js';
-import { dialogueOf } from './fountain.js';
-import { SHOTS_SYSTEM, shotsPrompt, RETAKE_SYSTEM, retakePrompt } from './prompts.js';
+import { dialogueOf, parseFountain } from './fountain.js';
+import { SHOTS_SYSTEM, shotsPrompt, RETAKE_SYSTEM, retakePrompt, DIRECT_SYSTEM, directPrompt } from './prompts.js';
+import { DirectionSchema, ShotsSchema, RetakeSchema, type Direction } from './schemas.js';
+import { exemplarsFor, sceneTags } from './exemplars.js';
 import { compileShot, fitBeats, H3, speechSeconds, type Beat, type ShotPlan, type CompileAsset, type CompileInput } from './compiler.js';
 
 const up = (s: any) => String(s || '').toUpperCase().trim();
@@ -16,7 +19,7 @@ const norm = (s: string) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]
 type Line = { who: string; line: string; paren?: string };
 
 /** Make a raw shot list safe: known keys only, dialogue verbatim/complete/once, timing that fits H3. */
-export function repairShots(raw: any, dialogue: Line[], known: { chars: Set<string>; props: Set<string> }, estSeconds = 10): { shots: ShotPlan[]; warnings: string[] } {
+export function repairShots(raw: any, dialogue: Line[], known: { chars: Set<string>; props: Set<string> }, estSeconds = 10, actions: string[] = []): { shots: ShotPlan[]; warnings: string[] } {
   const warnings: string[] = [];
   let shots: ShotPlan[] = (Array.isArray(raw?.shots) ? raw.shots : Array.isArray(raw) ? raw : []).map((s: any) => ({
     duration: Math.round(+s.duration || 0),
@@ -24,9 +27,11 @@ export function repairShots(raw: any, dialogue: Line[], known: { chars: Set<stri
     characters: [...new Set((s.characters || []).map(up).filter((k: string) => known.chars.has(k)))] as string[],
     props: [...new Set((s.props || []).map(up).filter((k: string) => known.props.has(k)))] as string[],
     sound: String(s.sound || ''),
+    covers: (Array.isArray(s.covers) ? s.covers : []).map((n: any) => Math.round(+n)).filter((n: number) => n >= 1 && n <= actions.length),
     beats: (Array.isArray(s.beats) ? s.beats : []).map((b: any) => ({
       t0: +b.t0 || 0, t1: +b.t1 || 0, shot: String(b.shot || 'medium'), angle: String(b.angle || ''), camera: String(b.camera || 'static'),
       action: String(b.action || ''),
+      lens: String(b.lens || ''), blocking: String(b.blocking || ''), performance: String(b.performance || ''), light: String(b.light || ''),
       dialogue: (Array.isArray(b.dialogue) ? b.dialogue : []).map((d: any) => ({ who: up(d.who), line: String(d.line || ''), delivery: String(d.delivery || '') })).filter((d: any) => d.line.trim()),
     })),
   })).filter((s: ShotPlan) => s.beats.length);
@@ -77,6 +82,22 @@ export function repairShots(raw: any, dialogue: Line[], known: { chars: Set<stri
     warnings.push(`added a missing line: ${d.who}: "${d.line.slice(0, 60)}"`);
   }
 
+  // ── Action: every action line of the scene is shown somewhere (the planner lists them in "covers") ──
+  if (actions.length) {
+    const shown = new Set(shots.flatMap((sh) => sh.covers || []));
+    for (let k = 1; k <= actions.length; k++) {
+      if (shown.has(k)) continue;
+      // Put it in the shot that shows the nearest earlier action, or the first shot.
+      let at = 0;
+      for (let j = k - 1; j >= 1 && !at; j--) { const i = shots.findIndex((sh) => sh.covers?.includes(j)); if (i >= 0) at = i; }
+      const target = shots[at];
+      target.beats.push({ t0: 0, t1: 0, shot: 'medium', camera: 'static', action: actions[k - 1] });
+      target.covers = [...(target.covers || []), k];
+      shown.add(k);
+      warnings.push(`added an action the plan skipped: "${actions[k - 1].slice(0, 60)}"`);
+    }
+  }
+
   // ── Timing: split anything H3 can't hold, then fit beats to whole seconds ──
   const out: ShotPlan[] = [];
   const queue = [...shots];
@@ -105,6 +126,12 @@ export function repairShots(raw: any, dialogue: Line[], known: { chars: Set<stri
     const chars = new Set(s.characters);
     fit.beats.forEach((b) => (b.dialogue || []).forEach((d) => { if (known.chars.has(d.who)) chars.add(d.who); }));
     out.push({ ...s, beats: fit.beats, duration: fit.duration, characters: [...chars], screen_positions: positions });
+  }
+  // Monotony check: the same move on most beats reads as coverage, not direction.
+  const moves = out.flatMap((sh) => sh.beats.map((b) => norm(b.camera || 'static').replace(/\b(very|slow|slowly|gentle|subtle)\b/g, '').trim()));
+  if (moves.length >= 6) {
+    const top = [...moves.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] / moves.length > 0.7) warnings.push(`camera move "${top[0]}" on ${top[1]} of ${moves.length} beats: little variety`);
   }
   return { shots: out, warnings };
 }
@@ -152,6 +179,37 @@ export function compileInputFor(shot: { plan: ShotPlan }, scene: any, project: a
 
 // ───────────────────────── planning ─────────────────────────
 
+/** Action paragraphs of a scene, in order: what the shot plan must show. */
+export const actionLines = (body: string) => parseFountain(body).filter((e) => e.t === 'action').map((e) => e.text.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+/** Run tasks with at most `n` in flight, keeping results in order. */
+async function inParallel<T, R>(items: T[], n: number, fn: (x: T, i: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+  }));
+  return out;
+}
+
+/** The director's pass: one plan for the whole episode, so scenes planned in parallel still cut together. */
+async function directEpisode(p: any, ep: any, scenes: any[], A: Awaited<ReturnType<typeof projectAssets>>): Promise<Direction> {
+  const [{ n: episodes }] = await sql`select count(*)::int n from episodes where project_id = ${p.id}`;
+  const t = p.story_bible?.treatment;
+  const input = {
+    title: p.title, format: p.format, aspect: p.aspect, language: p.language, style: p.style, episodes,
+    treatment: t ? { tone: t.tone, theme: t.theme, dramatic_question: t.dramatic_question, motifs: t.motifs } : null,
+    episode: { idx: ep.idx, title: ep.title },
+    sets: A.rows.filter((r: any) => r.kind === 'location' && !r.meta?.unused).map((r: any) => ({ key: r.key, name: r.name, description: String(r.description).slice(0, 240) })),
+    characters: A.rows.filter((r: any) => r.kind === 'character' && !r.meta?.unused).map((r: any) => ({ key: r.key, name: r.name })),
+    scenes: scenes.map((sc: any) => ({ idx: sc.idx, heading: sc.heading, body: sc.body, est_seconds: sc.est_seconds })),
+  };
+  const r = await claudeJSON<Direction>({ task: 'direct', system: DIRECT_SYSTEM, prompt: directPrompt(input), input, schema: DirectionSchema, effort: config.anthropic.effort, maxTokens: 32000 });
+  await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref: `direct:${ep.id}` });
+  const d = r.data || ({} as Direction);
+  return { visual_approach: String(d.visual_approach || ''), motifs: Array.isArray(d.motifs) ? d.motifs : [], scenes: Array.isArray(d.scenes) ? d.scenes : [] };
+}
+
 export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: boolean } = {}) {
   const [ep] = await sql`select * from episodes where id = ${episodeId}`;
   if (!ep) throw new PermanentError('episode not found');
@@ -165,18 +223,26 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
   const knownChars = new Set<string>(A.rows.filter((r: any) => r.kind === 'character').map((r: any) => r.key));
   const knownProps = new Set<string>(A.rows.filter((r: any) => r.kind === 'prop').map((r: any) => r.key));
 
-  const planned: { scene: any; shots: ShotPlan[]; warnings: string[] }[] = [];
-  let lastShot = '';
-  for (let k = 0; k < scenes.length; k++) {
-    const sc = scenes[k];
-    await ctx.progress(`Planning shots: scene ${k + 1} of ${scenes.length}`);
+  // 1) The director's plan for the episode (kept on the episode; rebuilt on a forced re-plan).
+  await ctx.progress('Directing the episode');
+  let direction: Direction = ep.direction?.scenes?.length && !o.force ? ep.direction : await directEpisode(p, ep, scenes, A);
+  await sql`update episodes set direction = ${sql.json(direction as any)} where id = ${episodeId}`;
+  const dirOf = (idx: number) => direction.scenes.find((d) => +d.scene === idx) || null;
+
+  // 2) Every scene's shots, several at once: the director's plan carries the continuity between them.
+  let done = 0;
+  const planned = await inParallel(scenes, config.anthropic.planConcurrency, async (sc: any, k: number) => {
     const dialogue = dialogueOf(sc.body, bible);
+    const actions = actionLines(sc.body);
     const setRow = sc.location_asset_id ? A.byId.get(sc.location_asset_id) : null;
     const master = setRow?.kind === 'set_variant' ? A.byId.get(setRow.parent_id) : null;
+    const tags = sceneTags(sc.body, { lines: dialogue.length, first: k === 0, last: k === scenes.length - 1 });
     const input = {
       title: p.title, format: p.format, aspect: p.aspect, language: p.language, style: p.style,
-      episode: { idx: ep.idx, title: ep.title },
-      prev: k ? scenes[k - 1].heading : '', next: scenes[k + 1]?.heading || '', lastShot,
+      episode: { idx: ep.idx, title: ep.title }, approach: direction.visual_approach,
+      direction: dirOf(sc.idx),
+      prev: k ? scenes[k - 1].heading : '', prevClosing: k ? dirOf(scenes[k - 1].idx)?.closing_image || '' : '',
+      next: scenes[k + 1]?.heading || '', nextOpening: scenes[k + 1] ? dirOf(scenes[k + 1].idx)?.opening_image || '' : '',
       set: setRow ? { key: setRow.key, name: setRow.name, description: master ? `${master.description} Now: ${setRow.description}` : setRow.description, layout: (master || setRow).meta?.layout } : null,
       characters: (sc.characters || []).map((ck: string) => {
         const c = A.byKey.get(`character:${ck}`); const l = sc.looks?.[ck] ? A.byId.get(sc.looks[ck]) : null;
@@ -184,15 +250,16 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
       }),
       props: (sc.props || []).map((pk: string) => ({ key: pk, name: A.byKey.get(`prop:${pk}`)?.name || pk })),
       scene: { idx: sc.idx, body: sc.body, est_seconds: sc.est_seconds },
-      dialogue,
+      actions, dialogue, tags,
+      exemplars: exemplarsFor(tags, `${p.id}:${sc.id}`),
     };
-    const r = await claudeJSON({ task: 'shots', system: SHOTS_SYSTEM, prompt: shotsPrompt(input), input, maxTokens: 12000 });
-    await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: r.usage.input + r.usage.output, cost: llmCost(r.model, r.usage), ref: `plan:${sc.id}` });
-    const fixed = repairShots(r.data, dialogue, { chars: knownChars, props: knownProps }, sc.est_seconds);
-    planned.push({ scene: sc, ...fixed });
-    const ls = fixed.shots[fixed.shots.length - 1];
-    lastShot = ls ? ls.beats[ls.beats.length - 1]?.action || '' : '';
-  }
+    const r = await claudeJSON({ task: 'shots', system: SHOTS_SYSTEM, prompt: shotsPrompt(input), input, schema: ShotsSchema, effort: config.anthropic.planningEffort, maxTokens: 24000 });
+    await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref: `plan:${sc.id}` });
+    const fixed = repairShots(r.data, dialogue, { chars: knownChars, props: knownProps }, sc.est_seconds, actions);
+    await ctx.progress(`Planning shots: ${++done} of ${scenes.length} scenes`);
+    const light = dirOf(sc.idx)?.light || '';
+    return { scene: sc, ...fixed, shots: fixed.shots.map((s) => ({ ...s, scene_light: light })) };
+  });
 
   const chain = !!p.settings?.chain_clips;
   const total = await sql.begin(async (tx) => {
@@ -225,10 +292,10 @@ export async function reviseShot(shotId: string, note: string) {
   const A = await projectAssets(p.id);
   const dialogue = s.plan.beats.flatMap((b: Beat) => b.dialogue || []);
   const input = { code: s.code, scene: s.heading, plan: s.plan, note, dialogue };
-  const r = await claudeJSON({ task: 'retake', system: RETAKE_SYSTEM, prompt: retakePrompt(input), input, fast: true, maxTokens: 6000 });
-  await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: r.usage.input + r.usage.output, cost: llmCost(r.model, r.usage), ref: `retake:${shotId}` });
+  const r = await claudeJSON({ task: 'retake', system: RETAKE_SYSTEM, prompt: retakePrompt(input), input, schema: RetakeSchema, fast: true, effort: 'medium', maxTokens: 16000 });
+  await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref: `retake:${shotId}` });
   const known = { chars: new Set<string>(A.rows.filter((x: any) => x.kind === 'character').map((x: any) => x.key)), props: new Set<string>(A.rows.filter((x: any) => x.kind === 'prop').map((x: any) => x.key)) };
-  const fixed = repairShots({ shots: [r.data?.shot || r.data], screen_positions: s.plan.screen_positions }, dialogue.map((d: any) => ({ who: d.who, line: d.line })), known, s.duration);
+  const fixed = repairShots({ shots: [(r.data as any)?.shot || r.data], screen_positions: s.plan.screen_positions }, dialogue.map((d: any) => ({ who: d.who, line: d.line })), known, s.duration);
   // A revision must stay one shot; if repair split it, keep the first and fold the rest's dialogue back in by keeping the original.
   const plan: ShotPlan = fixed.shots.length === 1 ? { ...fixed.shots[0], warnings: fixed.warnings } : { ...s.plan, warnings: ['revision would not fit one shot; kept the original plan and added the note to the prompt'] };
   const scene = s.scene_id ? (await sql`select * from scenes where id = ${s.scene_id}`)[0] : null;

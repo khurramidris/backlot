@@ -1,7 +1,7 @@
 {
   "name": "backlot-engine",
   "version": "0.1.0",
-  "description": "Backlot engine: prompt → script → cast → shots → rendered, edited film",
+  "description": "Backlot engine: prompt \u2192 script \u2192 cast \u2192 shots \u2192 rendered, edited film",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
@@ -12,10 +12,12 @@
     "e2e": "tsx test/e2e.ts",
     "e2e:vibe": "tsx test/vibe.e2e.ts",
     "e2e:runpod": "tsx test/runpod.e2e.ts",
-    "preflight": "tsx src/preflight.ts"
+    "preflight": "tsx src/preflight.ts",
+    "eval:story": "tsx scripts/eval-story.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
     "@aws-sdk/client-s3": "^3.1140.0",
     "@aws-sdk/s3-request-presigner": "^3.1140.0",
     "@hono/node-server": "^2.1.1",

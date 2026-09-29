@@ -15,6 +15,33 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
                                                                                      └────── fix this shot ◀────┘
 ```
 
+- **The story engine** (every step is Claude through the official SDK, with structured outputs, adaptive
+  thinking and an explicit effort; prompts in `pipeline/prompts.ts`, answer shapes in `pipeline/schemas.ts`):
+  1. **Develop** (`writer.ts`): three different takes on the idea, then the strongest developed into a treatment.
+     The treatment covers theme, characters (want, obstacle, secret, arc, voice, look), world, beat sheet, motifs and
+     clichés to avoid. Freshness comes from three sources (`story.ts`):
+     - optional "sparks" (engine, structure, texture) seeded per project
+     - the customer's earlier stories, which must not be repeated
+     - a list of overused AI names, premises and lines
+  2. **Screenplay** from the treatment (Fountain).
+  3. **Script doctor:** `storyLint` checks the draft (runtime, line length, cast and set counts, stock lines,
+     overused names, legible on-screen text), then Claude critiques and rewrites. A worse revision never replaces
+     the draft. The final report is saved in `story_bible.quality`.
+  4. **Breakdown** (`breakdown.ts`): casting, costume and production design. It aims for real, distinct faces
+     cast for contrast, signature colours, sets that tell a story, and one palette and texture for the film.
+     Image prompts (`assets.ts`) put the essentials first, within the image model's 1500 characters.
+  5. **Direction** (`shots.ts`): one plan per episode (visual approach, motifs), with each scene's purpose,
+     temperature, pace, key image, camera, light, blocking, and opening and closing images. It's saved on the
+     episode.
+  6. **Shots:** scenes are planned in parallel from the director's plan, following the WanPE lesson: each beat is
+     a cinematic brief (framing, lens, camera trajectory, blocking, performance, light, verbatim dialogue).
+     - Two matching reference sequences from `exemplars.ts` teach film grammar, rotated per scene.
+     - Code guarantees every dialogue line and every action line is covered, fits the beats to H3, and flags
+       monotonous camera work.
+  - Each writing step is its own autopilot run (state in `projects.autopilot.writing`), so a restart resumes and no
+    job runs long.
+  - `npm --prefix engine run eval:story` runs sample ideas through the whole engine and writes a report plus every
+    script and plan (mock mode is free; a real run needs `EVAL_CONFIRM=1`).
 - **Autopilot** (`engine/src/pipeline/autopilot.ts`) moves a project through the stages. It's a queue job that
   reschedules itself, so it survives restarts and costs nothing while waiting.
 - **Every step is a job** in Postgres (`engine/src/queue.ts`, `FOR UPDATE SKIP LOCKED`). Any number of
@@ -49,6 +76,8 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - Payment webhooks credit at most once (`payments` primary key), and credited amounts come from our config,
   never from the amount paid.
 - Without `ENFORCE_CREDITS` (local development, the mock e2e suites) there's no plan gate and no storage limit.
-- Every script line reaches the screen verbatim (`repairShots`), and every H3 rule is checked before a request
-  leaves (`validateH3`).
+- Every script line reaches the screen verbatim, and every action line gets a shot (`repairShots`). Every H3 rule is
+  checked before a request leaves (`validateH3`).
+- Structured outputs make the answer's shape reliable; code still repairs its content. Never ask the model to
+  write out its reasoning in a field (it can trigger refusals); thinking is adaptive and stays internal.
 - Anything that reaches an FFmpeg filter graph is validated first (`parseCutOptions`).

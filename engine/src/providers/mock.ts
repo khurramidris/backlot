@@ -16,7 +16,10 @@ const snake = (s: any) => up(s).replace(/['’]/g, '').replace(/[^A-Z0-9]+/g, '_
 const PROP_WORDS = ['ledger', 'phone', 'note', 'letter', 'ring', 'key', 'photo', 'photograph', 'bag', 'knife', 'gun', 'envelope', 'prescription', 'notebook', 'laptop', 'watch', 'necklace', 'file', 'pen', 'pencil', 'box', 'bottle', 'pill', 'card', 'diary'];
 
 export function mockClaudeJSON(task: string, input: any): any {
-  if (task === 'write') return mockWrite(input);
+  if (task === 'develop') return mockDevelop(input);
+  if (task === 'write' || task === 'screenplay') return mockWrite(input);
+  if (task === 'doctor') return { ...input.draft, notes: input.checks?.length ? ['tightened the flagged lines'] : [] };
+  if (task === 'direct') return mockDirect(input);
   if (task === 'breakdown') return mockBreakdown(input);
   if (task === 'shots') return mockShots(input);
   if (task === 'retake') {
@@ -25,6 +28,41 @@ export function mockClaudeJSON(task: string, input: any): any {
     return plan;
   }
   return {};
+}
+
+/** Three takes and a treatment that match the mock screenplay below (same ids and sets). */
+function mockDevelop(input: any) {
+  const idea = String(input.prompt || 'A story').replace(/\s+/g, ' ').trim();
+  const concept = (n: number) => ({ title: `${idea.slice(0, 30)} (${n})`, logline: idea.slice(0, 120), engine: 'a secret', ending: 'the truth comes out', fresh_because: `take ${n}` });
+  const eps = input.episodes || 1;
+  return {
+    concepts: [concept(1), concept(2), concept(3)], chosen: 0,
+    treatment: {
+      title: idea.slice(0, 40), logline: idea.slice(0, 120), genre: 'drama', tone: 'intimate, tense', theme: 'the cost of keeping a secret',
+      dramatic_question: 'Will she tell him the truth?',
+      world: { place: 'a quiet city neighbourhood', era: 'present day', social_world: 'working families', sensory_palette: ['steam from a pot', 'a buzzing streetlight', 'worn linoleum'] },
+      characters: [
+        { id: 'MAYA', name: 'Maya Rahman', age: '31', role: 'lead', want: 'to keep her past buried', obstacle: 'Leo', secret: 'why she left', arc: 'from hiding to honesty', voice: { manner: 'guarded', vocabulary: 'plain', rhythm: 'short sentences', never_says: 'sorry' }, look: 'slim, black hair, grey cardigan' },
+        { id: 'LEO', name: 'Leo Carter', age: '34', role: 'lead', want: 'the truth', obstacle: 'her silence', secret: 'he read the letter', arc: 'from anger to understanding', voice: { manner: 'earnest', vocabulary: 'simple', rhythm: 'halting', never_says: 'goodbye' }, look: 'tall, stubble, navy coat' },
+      ],
+      sets: [{ name: 'KITCHEN', description: 'a small warm kitchen', story_function: 'her refuge' }, { name: 'STREET', description: 'a quiet street at night', story_function: 'his approach' }],
+      episodes: Array.from({ length: eps }, (_, i) => ({ number: i + 1, title: `Part ${i + 1}`, beats: [{ beat: 'She ignores a call', set: 'KITCHEN', characters: ['MAYA'], turn: 'tension' }, { beat: 'He arrives with the letter', set: 'KITCHEN', characters: ['MAYA', 'LEO'], turn: 'confrontation' }], ending: 'Then you know why I left.' })),
+      motifs: ['the envelope'], avoid: ['a tearful reconciliation'],
+    },
+  };
+}
+
+/** A direction plan with one entry per scene. */
+function mockDirect(input: any) {
+  return {
+    visual_approach: 'close, observational camera that tightens as the secret surfaces',
+    motifs: ['the envelope'],
+    scenes: (input.scenes || []).map((s: any, i: number) => ({
+      scene: s.idx, purpose: 'move the story', temperature: Math.min(10, 3 + i * 2), pace: i ? 'measured' : 'slow',
+      key_image: `the key image of scene ${s.idx}`, camera: 'handheld, close', light: 'warm practicals', blocking: 'she holds frame left',
+      opening_image: `scene ${s.idx} opens`, closing_image: `scene ${s.idx} closes`, shots: 2,
+    })),
+  };
 }
 
 /** A small, valid two-set, two-character production built around the customer's idea. */
@@ -106,7 +144,8 @@ function mockShots(input: any) {
   const shots: any[] = [];
   const chars = (input.characters || []).map((c: any) => c.key);
   shots.push({ duration: 5, purpose: 'establish', characters: chars, props: (input.props || []).slice(0, 1).map((p: any) => p.key), sound: 'room tone',
-    beats: [{ t0: 0, t1: 3, shot: 'wide', camera: 'slow push-in', action: `Establish ${input.scene?.body?.split('\n')[0] || 'the scene'}` }, { t0: 3, t1: 5, shot: 'medium', camera: 'static', action: 'Hold on the lead.' }] });
+    covers: (input.actions || []).map((_: any, i: number) => i + 1),
+    beats: [{ t0: 0, t1: 3, shot: 'wide', lens: 'wide 24mm', camera: 'slow push-in', action: `Establish ${input.scene?.body?.split('\n')[0] || 'the scene'}`, blocking: 'lead frame left' }, { t0: 3, t1: 5, shot: 'medium', lens: 'normal 35mm', camera: 'static', action: 'Hold on the lead.', performance: 'a held breath' }] });
   for (let i = 0; i < d.length; i += 2) {
     const pair = d.slice(i, i + 2);
     shots.push({ duration: 8, purpose: 'exchange', characters: [...new Set(pair.map((x) => x.who))], props: [], sound: 'room tone',

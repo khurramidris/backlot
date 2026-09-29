@@ -4,7 +4,9 @@
 
 import { sql } from '../db.js';
 import { PermanentError, type JobCtx } from '../queue.js';
-import { claudeJSON, llmCost } from '../providers/claude.js';
+import { claudeJSON, llmCost, llmUnits } from '../providers/claude.js';
+import { config } from '../config.js';
+import { BreakdownSchema } from './schemas.js';
 import { recordUsage } from '../usage.js';
 import { parseScenes, type BibleCharacter } from './fountain.js';
 import { BREAKDOWN_SYSTEM, breakdownPrompt } from './prompts.js';
@@ -49,10 +51,11 @@ export async function runBreakdown(projectId: string, ctx: JobCtx, o: { force?: 
       prior_looks: c.design?.looks || [],
     })),
     seeds: p.story_bible?.design_seeds || {},
+    treatment: treatmentNotes(p.story_bible?.treatment),
     scenes: scenes.map((s) => ({ ref: s.ref, heading: s.heading, location: s.location, time: s.time, int_ext: s.int_ext, present: s.present, speakers: s.speakers, excerpt: s.body.slice(0, 900) })),
   };
-  const res = await claudeJSON<BreakdownResult>({ task: 'breakdown', system: BREAKDOWN_SYSTEM, prompt: breakdownPrompt(input), input, maxTokens: 24000 });
-  await recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: res.usage.input + res.usage.output, cost: llmCost(res.model, res.usage), ref: 'breakdown' });
+  const res = await claudeJSON<BreakdownResult>({ task: 'breakdown', system: BREAKDOWN_SYSTEM, prompt: breakdownPrompt(input), input, schema: BreakdownSchema as any, effort: config.anthropic.effort, maxTokens: 32000 });
+  await recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: llmUnits(res.usage), cost: llmCost(res.model, res.usage), ref: 'breakdown' });
   const bd = repair(res.data, scenes, bibleChars);
 
   // 3) Write assets + scenes in one transaction.
@@ -143,6 +146,16 @@ export async function runBreakdown(projectId: string, ctx: JobCtx, o: { force?: 
   return summary;
 }
 
+/** The parts of the writers' treatment that matter to casting and design (vibe projects only). */
+function treatmentNotes(t: any) {
+  if (!t) return null;
+  return {
+    tone: t.tone, genre: t.genre, theme: t.theme, world: t.world, motifs: t.motifs,
+    characters: (t.characters || []).map((c: any) => ({ id: c.id, age: c.age, role: c.role, look: c.look, voice: c.voice })),
+    sets: t.sets,
+  };
+}
+
 /** Make Claude's breakdown internally consistent: every scene in one set, looks cover appearances, keys clean. */
 export function repair(raw: any, scenes: { ref: string; heading: string; location: string; time: string; int_ext: string; present: string[]; speakers: string[] }[], bible: BibleCharacter[]): BreakdownResult {
   const refs = new Set(scenes.map((s) => s.ref));
@@ -172,7 +185,7 @@ export function repair(raw: any, scenes: { ref: string; heading: string; locatio
       key, name: String(c.name || bc?.name || key), is_minor: !!c.is_minor || (bc?.age ? +bc.age < 18 : false),
       description: String(c.description || bc?.design?.lock || ''),
       looks, scenes: sc,
-      voice: c.voice && (c.voice.brief || c.voice.sample_line) ? { brief: String(c.voice.brief || ''), sample_line: String(c.voice.sample_line || '') } : undefined,
+      voice: c.voice && c.voice.brief ? { brief: String(c.voice.brief || ''), sample_line: String(c.voice.sample_line || '') } : undefined,
     });
   }
   // Speakers that Claude forgot.

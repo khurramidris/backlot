@@ -6,7 +6,7 @@
 import { sql } from '../db.js';
 import { PermanentError, enqueue, type Again, type JobCtx } from '../queue.js';
 import { credit } from '../billing.js';
-import { writeProduction } from './writer.js';
+import { writeStep } from './writer.js';
 import { runBreakdown } from './breakdown.js';
 import { queueAllAssets, approveAsset } from './assets.js';
 import { planEpisode } from './shots.js';
@@ -34,10 +34,12 @@ export async function runAutopilot(projectId: string, ctx: JobCtx): Promise<any 
   if (!p || p.mode !== 'vibe') return { skipped: 'not a vibe project' };
   const st = p.autopilot || {};
   switch (p.stage as Stage) {
-    case 'writing':
-      await writeProduction(p.id, ctx);
+    case 'writing': { // develop → screenplay → script doctor, one step per run
+      const step = await writeStep(p.id, ctx);
+      if (!step.done) return again(0, step.progress);
       await setStage(p.id, 'breakdown');
       return again(0, 'Script written');
+    }
     case 'breakdown':
       await runBreakdown(p.id, ctx, { force: true });
       await queueAllAssets(p.id);
