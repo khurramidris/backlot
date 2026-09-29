@@ -10,6 +10,7 @@ import { buildSrt, parseCutOptions } from '../src/pipeline/assemble.js';
 import { splitDebit, isActiveStatus } from '../src/billing.js';
 import { verifyLemonSignature } from '../src/lemonsqueezy.js';
 import { decideWorkersMin } from '../src/capacity.js';
+import { hit } from '../src/ratelimit.js';
 import { createHmac } from 'node:crypto';
 
 const SCRIPT = `INT. ASMA'S HOME - BEDROOM - NIGHT
@@ -148,4 +149,12 @@ test('RunPod warm pool: zero when idle, warm when active, grows with the queue, 
   assert.equal(decideWorkersMin({ ...cfg, active: 0, recent: 3 }), 1, 'recently active: stay warm');
   assert.equal(decideWorkersMin({ ...cfg, active: 5, recent: 5 }), 3, 'deep queue: one worker per 2 renders');
   assert.equal(decideWorkersMin({ ...cfg, active: 50, recent: 50 }), 4, 'budget cap');
+});
+
+test('rate limits: count per key, block over the limit, reset with the window', () => {
+  const t0 = 1_000_000;
+  for (let i = 0; i < 3; i++) assert.equal(hit('t:a', 3, 60, t0), 0, `request ${i + 1} allowed`);
+  assert.equal(hit('t:a', 3, 60, t0 + 1000), 59, 'fourth request waits for the window');
+  assert.equal(hit('t:b', 3, 60, t0 + 1000), 0, 'other customers are unaffected');
+  assert.equal(hit('t:a', 3, 60, t0 + 61_000), 0, 'new window, allowed again');
 });

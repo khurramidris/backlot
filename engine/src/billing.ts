@@ -15,9 +15,12 @@ export const sellPrice = (resolution: string, seconds: number) =>
   round((config.credits.sellPerSecond[resolution] ?? config.credits.sellPerSecond['768P']) * seconds);
 
 /** Create the account the first time we see a user, granting the signup credit exactly once. */
-export async function ensureAccount(ownerId: string) {
-  const [created] = await sql`insert into credit_accounts (owner_id, balance_usd) values (${ownerId}, ${config.credits.signupUsd})
-    on conflict (owner_id) do nothing returning owner_id`;
+export async function ensureAccount(ownerId: string, email?: string | null) {
+  // Also keeps the email (for support search) and last-seen time current. xmax = 0 only on a fresh insert.
+  const [row] = await sql`insert into credit_accounts (owner_id, balance_usd, email) values (${ownerId}, ${config.credits.signupUsd}, ${email ?? null})
+    on conflict (owner_id) do update set email = coalesce(excluded.email, credit_accounts.email), last_seen_at = now()
+    returning (xmax = 0) as inserted`;
+  const created = row?.inserted;
   if (created && config.credits.signupUsd > 0) await sql`insert into credit_events (owner_id, delta_usd, reason) values (${ownerId}, ${config.credits.signupUsd}, 'signup')`;
 }
 

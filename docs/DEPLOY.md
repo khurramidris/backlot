@@ -126,6 +126,26 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
 8. Cancel from the customer portal: /billing shows "Cancelled · ends …" and creating still works until then.
 9. As an admin (`ADMIN_USER_IDS`), open `/v1/admin/capacity`: RunPod workers and the controller's decision.
 
+## Operations
+- **Admin** (`/admin`, users in `ADMIN_USER_IDS`) shows:
+  - the last 7 days: paying customers and monthly revenue, accounts, films finished and failed, payments,
+    and provider spend by kind
+  - recent failures
+  - customer search by email or user id
+  - each customer's detail: plan, credits, storage, films with charged vs provider cost, payments and the credit
+    ledger, plus credit grants and deductions (with a note; top-up bucket; ledger reasons
+    `admin_grant` / `admin_deduct`)
+- **Setup check** (`/setup`) tests every production setting and service.
+- **Error alerts:** set `SENTRY_DSN`. It reports API errors (5xx), jobs that fail on their last attempt, and
+  unhandled rejections.
+- **Rate limits** are per customer and in memory, per instance:
+  - 600 API requests a minute
+  - 30 new videos an hour
+  - 30 billing calls an hour
+  - 200 renders or retakes an hour
+  - 300 asset calls an hour
+  Over a limit the API answers 429 with `Retry-After`.
+
 ## 6. Before you take real money
 
 - Fill in the legal entity, jurisdiction, address and support email in `web/src/lib/legal.ts`.

@@ -27,6 +27,8 @@ process.env.MINIMAX_POLL_SECONDS ??= '1';
 
 const OUT = process.env.E2E_OUT || './data/vibe-out';
 const A = 'aaaaaaaa-0000-4000-8000-000000000001', B = 'bbbbbbbb-0000-4000-8000-000000000002', C = 'cccccccc-0000-4000-8000-000000000003';
+const ADMIN = 'dddddddd-0000-4000-8000-000000000004';
+process.env.ADMIN_USER_IDS = ADMIN;
 const base = `http://localhost:${process.env.PORT}`;
 
 // A stand-in for the Lemon Squeezy API: hosted checkouts and subscription lookups (for the customer portal).
@@ -233,6 +235,21 @@ const refused = await api(C, 'POST', `/v1/projects/${pc.id}/produce`, {}, [402])
 assert.equal(refused.error.code, 'insufficient_credit');
 near(await balance(C), 0.1, 'nothing charged when the render is refused');
 log('  ✓ render refused up front with a clear price; nothing charged');
+
+log('\n10b. Admin console');
+await api(C, 'GET', '/v1/admin/overview', undefined, [404]);
+await api(C, 'GET', `/v1/admin/customers/${C}`, undefined, [404]);
+const ov = await api(ADMIN, 'GET', '/v1/admin/overview');
+assert.ok(ov.people.accounts >= 2 && ov.subscriptions.paying >= 2, 'overview counts customers and paying plans');
+assert.ok(ov.payments_7d.n >= 1, 'payments counted');
+assert.equal((await api(ADMIN, 'GET', `/v1/admin/customers?q=${C}`)).customers[0].owner_id, C, 'search by user id');
+const cd = await api(ADMIN, 'GET', `/v1/admin/customers/${C}`);
+assert.equal(cd.plan.active, true); assert.ok(cd.projects.length === 1 && cd.credit_events.length > 0);
+await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: 5 }, [400]); // a note is required
+near((await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: 5, note: 'beta goodwill' })).credits.topup, 5.1, 'admin grant');
+near((await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: -10, note: 'correction' })).credits.topup, 0, 'deduction never goes below zero');
+assert.ok((await me(C)).recent.some((e: any) => e.reason === 'admin_grant'), 'grant shows in the customer’s history');
+log('  ✓ admins see the overview and customers and can adjust credit; customers can’t reach any of it');
 
 log('\n11. Cancel, then expiry');
 await subscription('subscription_cancelled', A, 501, 'cancelled', { ends_at: future(10) });

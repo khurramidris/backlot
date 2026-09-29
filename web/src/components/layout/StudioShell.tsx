@@ -6,6 +6,7 @@ import {
   ListChecks,
   Menu,
   Plus,
+  Shield,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -18,7 +19,7 @@ import { engine, usd } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 
 const NAV: {
-  to: "/dashboard" | "/billing" | "/account" | "/setup";
+  to: "/dashboard" | "/billing" | "/account" | "/setup" | "/admin";
   label: string;
   icon: LucideIcon;
 }[] = [
@@ -27,7 +28,10 @@ const NAV: {
   { to: "/account", label: "Account", icon: UserRound },
 ];
 
-const ADMIN_NAV = [{ to: "/setup" as const, label: "Setup check", icon: ListChecks }];
+const ADMIN_NAV = [
+  { to: "/admin" as const, label: "Admin", icon: Shield },
+  { to: "/setup" as const, label: "Setup check", icon: ListChecks },
+];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: engine.me, staleTime: 15_000 });

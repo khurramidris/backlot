@@ -24,6 +24,9 @@ import { resolveBrief } from './pipeline/writer.js';
 import { startAutopilot } from './pipeline/autopilot.js';
 import { endpointHealth } from './providers/runpod.js';
 import { preflight } from './preflight.js';
+import { admin } from './admin.js';
+import { limit } from './ratelimit.js';
+import { reportError } from './monitoring.js';
 
 type Env = { Variables: { uid: string; email: string | null } };
 export const app = new Hono<Env>();
@@ -41,7 +44,7 @@ app.use('*', cors({ origin: config.corsOrigins.includes('*') ? '*' : config.cors
 
 app.onError((e: any, c) => {
   const status = e.status || (e instanceof PermanentError ? (e.code === 'not_found' ? 404 : e.code === 'conflict' || e.code === 'not_approved' || e.code === 'bad_state' ? 409 : ['insufficient_credit', 'subscription_required', 'storage_full'].includes(e.code) ? 402 : e.code === 'config' ? 503 : 400) : e.name === 'ZodError' ? 400 : 500);
-  if (status >= 500) console.error('[api]', e);
+  if (status >= 500) { console.error('[api]', e); reportError(e, { where: 'api', path: c.req.path, method: c.req.method }); }
   return c.json({ error: { code: e.code || (status === 400 ? 'bad_request' : 'server_error'), message: e.name === 'ZodError' ? 'Invalid request: ' + (e.issues || []).map((i: any) => `${i.path.join('.')} ${i.message}`).join('; ') : e.message, ...(e.missing ? { missing: e.missing } : {}) } }, status);
 });
 
@@ -94,6 +97,15 @@ app.get('/console', async (c) => c.html(await readFile(join(here, '..', 'public'
 
 const v1 = new Hono<Env>();
 v1.use('*', requireUser);
+// Request limits per customer: generous for people, tight enough to stop a runaway script running up AI costs.
+v1.use('*', limit('api', 600, 60));
+v1.post('/create', limit('create', 30, 3600));
+v1.post('/projects', limit('create', 30, 3600));
+v1.use('/billing/*', limit('billing', 30, 3600));
+v1.post('/shots/:id/retake', limit('render', 200, 3600));
+v1.post('/shots/:id/render', limit('render', 200, 3600));
+v1.post('/episodes/:id/render', limit('render', 200, 3600));
+v1.use('/assets/*', limit('assets', 300, 3600));
 
 // ───────── helpers ─────────
 const nf = (what: string) => new PermanentError(`${what} not found`, 'not_found');
@@ -169,7 +181,7 @@ v1.get('/projects/:id', async (c) => {
 v1.post('/create', async (c) => {
   const uid = c.get('uid');
   const brief = resolveBrief(await body(c));
-  await ensureAccount(uid);
+  await ensureAccount(uid, c.get('email'));
   await requirePlan(uid);
   const p = await sql.begin(async (tx) => {
     const [p] = await tx`insert into projects (owner_id, title, format, aspect, language, mode, stage, brief, settings)
@@ -484,7 +496,7 @@ v1.get('/admin/preflight', async (c) => {
 
 v1.get('/me', async (c) => {
   const uid = c.get('uid');
-  await ensureAccount(uid);
+  await ensureAccount(uid, c.get('email'));
   const events = await sql`select delta_usd::float delta_usd, reason, ref, created_at from credit_events where owner_id = ${uid} order by id desc limit 20`;
   const credits = await balances(uid);
   return c.json({
@@ -532,6 +544,7 @@ v1.get('/projects/:id/events', async (c) => {
   });
 });
 
+v1.route('/admin', admin);
 app.route('/v1', v1);
 
 // ───────── the web app (web/dist): static files, and index.html for every app route ─────────

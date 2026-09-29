@@ -162,6 +162,13 @@ Supabase's built-in email only sends a few messages an hour, so testers would ge
    - Update the Supabase Site URL and Redirect URLs (3.7) and the Lemon Squeezy webhook URL (5.6).
    - Run the Setup check again.
 
+## 10b. Error alerts (optional, 10 minutes, recommended)
+So you hear about problems before testers tell you:
+1. Go to **sentry.io** and sign up. The free plan is enough.
+2. Create a project and choose **Node.js**. Copy the **DSN** (a long address that starts with `https://`).
+3. In Railway → Variables, add `SENTRY_DSN=<the DSN>`.
+From then on, Sentry emails you when something breaks, such as a render that fails for good or a server error.
+
 ## 11. Invite testers
 Send each tester:
 - the link to your site
@@ -169,8 +176,14 @@ Send each tester:
   charged during the beta."
 - where to send feedback (an email address or a WhatsApp group)
 
-Start with 10–20 people. Every few days, look at the MiniMax balance and at **Railway → Deployments → Logs** for
-errors, and send me anything that looks wrong.
+Start with 10–20 people. The **Admin** page (sidebar, admins only) shows the week at a glance:
+- paying customers, films finished and failed, money in and AI costs out
+- recent failures, and every customer
+
+Click a customer to see their films, what each cost you against what they paid, and their credit history. You
+can also **give or take back credit** there with a note, for example if a film came out badly.
+
+Also keep an eye on the MiniMax balance, and send me anything that looks wrong.
 
 ## Going live with real payments (later)
 1. **Lemon Squeezy:** activate the store (they verify your identity, which can take a few days), then switch Test

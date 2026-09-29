@@ -159,6 +159,59 @@ export type Plan = {
   storage_gb: number;
 };
 
+export type AdminOverview = {
+  people: { accounts: number; active_7d: number; new_7d: number };
+  subscriptions: { paying: number; mrr_usd: number };
+  films: { created_7d: number; finished_7d: number; failed_7d: number; in_progress: number };
+  provider_spend_7d: { kind: string; usd: number }[];
+  payments_7d: { usd: number; n: number };
+  recent_failures: {
+    id: string;
+    title: string;
+    owner_id: string;
+    email: string | null;
+    stage_error: string | null;
+    updated_at: string;
+  }[];
+};
+
+export type AdminCustomerRow = {
+  owner_id: string;
+  email: string | null;
+  plan_usd: number;
+  topup_usd: number;
+  plan_status: string | null;
+  projects: number;
+  storage_bytes: number;
+  created_at: string;
+  last_seen_at: string;
+};
+
+export type AdminCustomer = {
+  customer: { owner_id: string; email: string | null; created_at: string; last_seen_at: string };
+  credits: Me["credits"];
+  plan: Pick<Plan, "status" | "active" | "renews_at" | "ends_at">;
+  storage: Me["storage"];
+  subscriptions: {
+    id: string;
+    status: string;
+    renews_at: string | null;
+    ends_at: string | null;
+    updated_at: string;
+  }[];
+  credit_events: { delta_usd: number; reason: string; ref: string | null; created_at: string }[];
+  payments: { id: string; amount_usd: number; created_at: string }[];
+  projects: {
+    id: string;
+    title: string;
+    stage: Stage | null;
+    stage_error: string | null;
+    updated_at: string;
+    provider_cost_usd: number;
+    charged_usd: number;
+  }[];
+};
+
 export type SetupCheck = {
   area: string;
   name: string;
@@ -185,6 +238,17 @@ export const engine = {
   subscribe: () => call<{ url: string }>("POST", "/billing/subscribe", {}),
   topup: (pack: string) => call<{ url: string }>("POST", "/billing/topup", { pack }),
   portal: () => call<{ url: string }>("GET", "/billing/portal"),
+  admin: {
+    overview: () => call<AdminOverview>("GET", "/admin/overview"),
+    customers: (q: string) =>
+      call<{ customers: AdminCustomerRow[] }>(
+        "GET",
+        `/admin/customers?q=${encodeURIComponent(q)}`,
+      ).then((r) => r.customers),
+    customer: (id: string) => call<AdminCustomer>("GET", `/admin/customers/${id}`),
+    adjust: (id: string, usd: number, note: string) =>
+      call<{ credits: Me["credits"] }>("POST", `/admin/customers/${id}/credit`, { usd, note }),
+  },
   preflight: () => call<{ checks: SetupCheck[] }>("GET", "/admin/preflight").then((r) => r.checks),
   projects: () => call<{ projects: ProjectSummary[] }>("GET", "/projects").then((r) => r.projects),
   project: (id: string) => call<ProjectDetail>("GET", `/projects/${id}`),

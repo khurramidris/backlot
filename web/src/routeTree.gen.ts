@@ -19,6 +19,8 @@ import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated/billing'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSetupRouteImport } from './routes/_authenticated/setup'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
+import { Route as AuthenticatedAdminOwnerIdRouteImport } from './routes/_authenticated/admin.$ownerId'
 import { Route as AuthenticatedPProjectIdRouteImport } from './routes/_authenticated/p.$projectId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -70,6 +72,17 @@ const AuthenticatedSetupRoute = AuthenticatedSetupRouteImport.update({
   path: '/setup',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAdminOwnerIdRoute =
+  AuthenticatedAdminOwnerIdRouteImport.update({
+    id: '/admin/$ownerId',
+    path: '/admin/$ownerId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPProjectIdRoute = AuthenticatedPProjectIdRouteImport.update({
   id: '/p/$projectId',
   path: '/p/$projectId',
@@ -86,7 +99,9 @@ export interface FileRoutesByFullPath {
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/setup': typeof AuthenticatedSetupRoute
+  '/admin/$ownerId': typeof AuthenticatedAdminOwnerIdRoute
   '/p/$projectId': typeof AuthenticatedPProjectIdRoute
+  '/admin/': typeof AuthenticatedAdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -98,7 +113,9 @@ export interface FileRoutesByTo {
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/setup': typeof AuthenticatedSetupRoute
+  '/admin/$ownerId': typeof AuthenticatedAdminOwnerIdRoute
   '/p/$projectId': typeof AuthenticatedPProjectIdRoute
+  '/admin': typeof AuthenticatedAdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -112,7 +129,9 @@ export interface FileRoutesById {
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/setup': typeof AuthenticatedSetupRoute
+  '/_authenticated/admin/$ownerId': typeof AuthenticatedAdminOwnerIdRoute
   '/_authenticated/p/$projectId': typeof AuthenticatedPProjectIdRoute
+  '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -126,7 +145,9 @@ export interface FileRouteTypes {
     | '/billing'
     | '/dashboard'
     | '/setup'
+    | '/admin/$ownerId'
     | '/p/$projectId'
+    | '/admin/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -138,7 +159,9 @@ export interface FileRouteTypes {
     | '/billing'
     | '/dashboard'
     | '/setup'
+    | '/admin/$ownerId'
     | '/p/$projectId'
+    | '/admin'
   id:
     | '__root__'
     | '/'
@@ -151,7 +174,9 @@ export interface FileRouteTypes {
     | '/_authenticated/billing'
     | '/_authenticated/dashboard'
     | '/_authenticated/setup'
+    | '/_authenticated/admin/$ownerId'
     | '/_authenticated/p/$projectId'
+    | '/_authenticated/admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -235,6 +260,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSetupRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/': {
+      id: '/_authenticated/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin/$ownerId': {
+      id: '/_authenticated/admin/$ownerId'
+      path: '/admin/$ownerId'
+      fullPath: '/admin/$ownerId'
+      preLoaderRoute: typeof AuthenticatedAdminOwnerIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/p/$projectId': {
       id: '/_authenticated/p/$projectId'
       path: '/p/$projectId'
@@ -250,7 +289,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedSetupRoute: typeof AuthenticatedSetupRoute
+  AuthenticatedAdminOwnerIdRoute: typeof AuthenticatedAdminOwnerIdRoute
   AuthenticatedPProjectIdRoute: typeof AuthenticatedPProjectIdRoute
+  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -258,7 +299,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedSetupRoute: AuthenticatedSetupRoute,
+  AuthenticatedAdminOwnerIdRoute: AuthenticatedAdminOwnerIdRoute,
   AuthenticatedPProjectIdRoute: AuthenticatedPProjectIdRoute,
+  AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

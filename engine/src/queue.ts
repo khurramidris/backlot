@@ -4,6 +4,7 @@
 import { hostname } from 'node:os';
 import { sql } from './db.js';
 import { config } from './config.js';
+import { reportError } from './monitoring.js';
 
 export interface Job {
   id: number; project_id: string | null; kind: string; payload: any;
@@ -79,6 +80,7 @@ async function runOne(job: Job) {
     const last = permanent || job.attempts >= job.max_attempts;
     const backoff = Math.min(300, 5 * 3 ** (job.attempts - 1));
     console.error(`[job ${job.id} ${job.kind}] ${last ? 'failed' : 'retrying'}: ${msg}`);
+    if (last) reportError(e, { where: 'job', job_kind: job.kind, job_id: String(job.id), project_id: job.project_id ?? undefined });
     await sql`update jobs set status = ${last ? 'failed' : 'queued'}, error = ${msg}, locked_at = null, locked_by = null,
       run_after = now() + make_interval(secs => ${last ? 0 : backoff}), updated_at = now() where id = ${job.id}`;
     if (last) {

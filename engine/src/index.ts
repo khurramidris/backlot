@@ -7,7 +7,9 @@ import { registerJobs } from './jobs.js';
 import { startCapacityController } from './capacity.js';
 import { startWorker } from './queue.js';
 import { app } from './server.js';
+import { initMonitoring } from './monitoring.js';
 
+await initMonitoring();
 if (config.autoMigrate) await migrate();
 registerJobs();
 await startCapacityController();

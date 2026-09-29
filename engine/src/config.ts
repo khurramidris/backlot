@@ -94,6 +94,9 @@ export const config = {
     tickSeconds: num(env.RUNPOD_CAPACITY_TICK_SECONDS, 60),
   },
 
+  // Error alerts (optional): a Sentry project's DSN. Server errors and failed jobs are reported there.
+  sentryDsn: env.SENTRY_DSN || '',
+
   admins: (env.ADMIN_USER_IDS || '').split(',').map((s) => s.trim()).filter(Boolean),
 
   images: {

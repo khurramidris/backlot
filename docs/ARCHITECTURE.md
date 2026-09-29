@@ -39,6 +39,9 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - **Auth:** Supabase Auth in the browser. The engine verifies the session token on every `/v1` request. All
   product data lives in the engine's tables; Supabase only knows about users.
 
+- **Operations:** `engine/src/admin.ts` (the admin console API), `engine/src/preflight.ts` (Setup check),
+  `engine/src/ratelimit.ts` (per-customer limits) and `engine/src/monitoring.ts` (Sentry, optional).
+
 ## Invariants worth keeping
 
 - Nothing expensive happens before the customer approves a price at the checkpoint.
