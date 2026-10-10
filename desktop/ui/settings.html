@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Backlot settings</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<link rel="stylesheet" href="base.css">
+<style>
+  body { padding: 28px 40px 110px; max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 22px 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 22px; }
+  .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+  .choice label { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 14px 16px; cursor: pointer; display: block; }
+  .choice input { display: none; }
+  .choice label.sel { border-color: var(--orange); box-shadow: 0 0 0 1px var(--orange) inset; }
+  .choice b { display: block; margin-bottom: 2px; }
+  .choice span { color: var(--muted); font-size: 13px; }
+  section { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+  section h2 { margin: 0 0 2px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--orange); }
+  section .what { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .field { margin: 12px 0; }
+  .field > label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .field .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .line { display: flex; gap: 8px; }
+  input[type=text], input[type=password], input[type=number], select { width: 100%; background: var(--black); color: var(--ivory); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font: inherit; }
+  input:focus, select:focus { outline: none; border-color: var(--orange); }
+  .check { display: flex; gap: 10px; align-items: flex-start; }
+  .check input { margin-top: 4px; accent-color: var(--orange); }
+  .set { color: var(--green); font-size: 12px; margin-left: 8px; font-weight: 500; }
+  .result { font-size: 12px; margin-top: 6px; min-height: 18px; } .result.ok { color: var(--green); } .result.bad { color: var(--red); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(15,15,15,.96); border-top: 1px solid var(--border); padding: 14px 40px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+  .bar .note { margin-right: auto; color: var(--yellow); font-size: 13px; }
+  .only-real { display: none; } body.m-real .only-real { display: block; }
+  .only-demo { display: none; } body.m-demo .only-demo { display: block; }
+  details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); }
+</style></head>
+<body class="m-demo">
+  <div class="brand"><div class="mark">B</div><div class="word">Backlot</div></div>
+  <div class="dash"></div>
+  <h1 id="h1">Settings</h1>
+  <p class="lead" id="lead">Choose how Backlot runs on this computer. You can change this any time from the menu.</p>
+
+  <div class="choice">
+    <label id="c-demo"><input type="radio" name="mode" value="demo"><b>Try it now</b><span>Everything is faked: placeholder scripts, images and clips. No keys, nothing billed. See how the studio works.</span></label>
+    <label id="c-real"><input type="radio" name="mode" value="real"><b>Use my own accounts</b><span>Real stories, images, voices and video, paid directly to Anthropic, MiniMax and RunPod.</span></label>
+  </div>
+
+  <div class="only-real">
+    <section>
+      <h2>Writing</h2>
+      <p class="what">Claude writes the story, screenplay, cast and the plan for every shot.</p>
+      <div class="field"><label>Anthropic API key <span class="set" id="set-anthropicKey"></span></label>
+        <div class="line"><input type="password" id="anthropicKey" autocomplete="off" placeholder="sk-ant-…"><button type="button" data-test="anthropic">Test</button></div>
+        <div class="result" id="res-anthropic"></div>
+        <div class="hint">Get one at <a data-ext="https://console.anthropic.com/settings/keys">console.anthropic.com</a>. A film costs about $1 to $3 to write.</div></div>
+      <div class="two">
+        <div class="field"><label>Quality</label><select id="storyQuality"><option value="high">Best (slower, costs more)</option><option value="medium">Good (cheaper, a little less polished)</option></select></div>
+        <div class="field"><label>Polish pass</label><div class="check"><input type="checkbox" id="scriptDoctor"><div>Have Claude re-read and fix the script<div class="hint">One extra call; better scripts.</div></div></div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Images and voices</h2>
+      <p class="what">Pictures of your characters, sets and props, and a voice for every character.</p>
+      <div class="field"><label>Make images with</label><select id="imageProvider"><option value="minimax">MiniMax</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option></select></div>
+      <div class="field"><label>MiniMax API key <span class="set" id="set-minimaxKey"></span></label>
+        <input type="password" id="minimaxKey" autocomplete="off" placeholder="Needed for voices, and for images if chosen above">
+        <div class="hint">From <a data-ext="https://www.minimax.io">minimax.io</a>. Voices always use MiniMax. It is checked the first time a film is made; Tools → Setup check also tests it.</div></div>
+      <div class="field" id="f-gemini"><label>Gemini API key <span class="set" id="set-geminiKey"></span></label>
+        <div class="line"><input type="password" id="geminiKey" autocomplete="off"><button type="button" data-test="gemini">Test</button></div><div class="result" id="res-gemini"></div></div>
+      <div class="field" id="f-openai"><label>OpenAI API key <span class="set" id="set-openaiKey"></span></label>
+        <div class="line"><input type="password" id="openaiKey" autocomplete="off"><button type="button" data-test="openai">Test</button></div><div class="result" id="res-openai"></div></div>
+    </section>
+
+    <section>
+      <h2>Video</h2>
+      <p class="what">Where the video model runs.</p>
+      <div class="field"><label>Make video with</label><select id="videoProvider"><option value="runpod">My H3 on RunPod</option><option value="minimax">MiniMax's hosted H3</option></select></div>
+      <div id="runpod">
+        <div class="field"><label>RunPod API key <span class="set" id="set-runpodKey"></span></label><input type="password" id="runpodKey" autocomplete="off"></div>
+        <div class="field"><label>RunPod endpoint ID</label>
+          <div class="line"><input type="text" id="runpodEndpointId" placeholder="e.g. a1b2c3d4e5f6g7"><button type="button" data-test="runpod">Test</button></div>
+          <div class="result" id="res-runpod"></div>
+          <div class="hint">The serverless endpoint that runs our worker (<code>gpu-worker/</code>).</div></div>
+        <div class="field"><label>Your GPU cost per second ($)</label><input type="number" id="gpuPricePerSecond" min="0" step="0.00001">
+          <div class="hint">Optional. Lets Tools → Admin show what each film really cost you.</div></div>
+        <div class="field"><label>Public address</label><input type="text" id="publicUrl" placeholder="Leave blank for a free automatic tunnel (recommended)">
+          <div class="hint">RunPod's GPU downloads reference images from this computer and uploads each finished clip back. Backlot opens a free Cloudflare tunnel for that on every start (about 40 MB is downloaded the first time). Only fill this in if you already have your own https address that reaches this computer.</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Limits</h2>
+      <p class="what">Keep a first test small.</p>
+      <div class="two">
+        <div class="field"><label>Longest film (seconds)</label><input type="number" id="maxFilmSeconds" min="15" max="3600"></div>
+        <div class="field"><label>Video clips made at once</label><input type="number" id="parallelRenders" min="1" max="20"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="only-demo"><p class="lead">Demo mode needs nothing else. Pick "Use my own accounts" when you want real results.</p></div>
+
+  <div class="bar">
+    <span class="note" id="note"></span>
+    <button id="cancel" type="button">Cancel</button>
+    <button id="save" class="primary" type="button">Save and start</button>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const SECRETS = ['anthropicKey', 'minimaxKey', 'geminiKey', 'openaiKey', 'runpodKey'];
+  const FIELDS = ['storyQuality', 'imageProvider', 'videoProvider', 'runpodEndpointId', 'gpuPricePerSecond', 'publicUrl', 'maxFilmSeconds', 'parallelRenders'];
+  let first = new URLSearchParams(location.search).get('first') === '1';
+  let has = {};
+
+  function mode() { return document.querySelector('input[name=mode]:checked').value; }
+  function refresh() {
+    document.body.className = 'm-' + mode();
+    $('c-demo').classList.toggle('sel', mode() === 'demo');
+    $('c-real').classList.toggle('sel', mode() === 'real');
+    $('f-gemini').style.display = $('imageProvider').value === 'gemini' ? '' : 'none';
+    $('f-openai').style.display = $('imageProvider').value === 'openai' ? '' : 'none';
+    $('runpod').style.display = $('videoProvider').value === 'runpod' ? '' : 'none';
+  }
+
+  async function init() {
+    const s = await window.backlot.getSettings();
+    has = s.has;
+    first = first || s.isFirstRun;
+    $('h1').textContent = first ? 'Welcome to Backlot' : 'Settings';
+    $('lead').textContent = first ? 'The whole studio, on your computer. Start with the demo, or connect your own accounts.' : 'Change how Backlot runs on this computer. Saving restarts the studio; your work is kept.';
+    const want = new URLSearchParams(location.search).get('mode'); // ?mode=real opens on that choice (used by screenshots)
+    document.querySelector(`input[name=mode][value=${want === 'real' || want === 'demo' ? want : s.mode}]`).checked = true;
+    for (const f of FIELDS) $(f).value = s[f];
+    $('scriptDoctor').checked = !!s.scriptDoctor;
+    for (const k of SECRETS) { $(`set-${k}`).textContent = s.has[k] ? '✓ saved (leave blank to keep it)' : ''; }
+    refresh();
+  }
+
+  document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', refresh));
+  $('imageProvider').onchange = refresh; $('videoProvider').onchange = refresh;
+  document.querySelectorAll('[data-ext]').forEach((a) => a.onclick = () => window.backlot.openExternal(a.dataset.ext));
+
+  document.querySelectorAll('[data-test]').forEach((b) => b.onclick = async () => {
+    const kind = b.dataset.test, out = $(`res-${kind}`);
+    const keyId = { anthropic: 'anthropicKey', gemini: 'geminiKey', openai: 'openaiKey', runpod: 'runpodKey' }[kind];
+    const typed = $(keyId).value.trim();
+    if (!typed && has[keyId]) { out.className = 'result'; out.textContent = 'This key is already saved. Type a new one to test it.'; return; }
+    b.disabled = true; out.className = 'result'; out.textContent = 'Testing…';
+    const r = await window.backlot.test(kind, { key: typed, endpointId: $('runpodEndpointId').value.trim() });
+    out.className = 'result ' + (r.ok ? 'ok' : 'bad'); out.textContent = r.message; b.disabled = false;
+  });
+
+  $('save').onclick = async () => {
+    const patch = { mode: mode(), scriptDoctor: $('scriptDoctor').checked };
+    for (const f of FIELDS) patch[f] = $(f).value;
+    for (const k of SECRETS) patch[k] = $(k).value;
+    $('save').disabled = true; $('note').textContent = '';
+    const r = await window.backlot.saveSettings(patch);
+    if (!r.ok) { $('note').textContent = r.message; $('save').disabled = false; }
+  };
+  $('cancel').onclick = () => (first ? window.backlot.quit() : window.backlot.cancelSettings());
+  init();
+</script></body></html>

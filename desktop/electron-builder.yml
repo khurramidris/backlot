@@ -1,0 +1,29 @@
+# Installers: `npm run dist` (run it on each operating system you want an installer for; see docs/DESKTOP.md).
+appId: app.backlot.desktop
+productName: Backlot
+copyright: Backlot
+# No asar: the app ships executables (Postgres, FFmpeg) that must live as real files.
+asar: false
+afterPack: scripts/after-pack.cjs
+directories:
+  output: release
+  buildResources: build
+files:
+  - main.cjs
+  - lib/**
+  - ui/**
+  - assets/**
+  - build/icon.png
+  - package.json
+extraResources:
+  # The engine's node_modules is copied in by scripts/after-pack.cjs: electron-builder always leaves that folder name out.
+  - { from: stage/engine, to: engine }
+  - { from: stage/web, to: web }
+mac:
+  category: public.app-category.video
+  target: [dmg, zip]
+win:
+  target: [nsis]
+linux:
+  category: AudioVideo
+  target: [AppImage, deb]

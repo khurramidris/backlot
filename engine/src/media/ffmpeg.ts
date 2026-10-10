@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
 import { config } from '../config.js';
 
 export function run(bin: string, args: string[], o: { timeoutMs?: number; cwd?: string } = {}): Promise<{ stdout: string; stderr: string }> {
@@ -16,6 +17,13 @@ export function run(bin: string, args: string[], o: { timeoutMs?: number; cwd?: 
     });
   });
 }
+
+/** A path as an FFmpeg filter option value: forward slashes, drive colon escaped, quoted. */
+const filterPath = (p: string) => `'${p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, '')}'`;
+/** The font for drawtext: the bundled file when one is set, else a system font by name. */
+export const drawFont = () => (config.ffmpeg.fontFile ? `fontfile=${filterPath(config.ffmpeg.fontFile)}` : `font='${config.ffmpeg.font}'`);
+/** Extra option for the subtitles filter so libass finds the bundled font. */
+export const subtitleFontsDir = () => (config.ffmpeg.fontsDir ? `:fontsdir=${filterPath(config.ffmpeg.fontsDir)}` : '');
 
 export const ffmpeg = (args: string[], o?: { timeoutMs?: number; cwd?: string }) => run(config.ffmpeg.bin, ['-hide_banner', '-loglevel', 'error', '-y', ...args], o);
 
@@ -58,21 +66,55 @@ export async function trimAudio(input: string, out: string, maxSec = 14) {
 
 const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\u2019").replace(/%/g, '\\%').replace(/,/g, '\\,');
 
+export interface TextLine {
+  text: string; size: number;
+  top: number; plus: number; // vertical position of the text's top edge: h * top + plus pixels
+  middle?: boolean;           // centre the line vertically instead (top and plus are ignored)
+  box?: boolean;              // dark box behind the text
+}
+
+/**
+ * Text drawn into the picture, as an FFmpeg filter. Uses `drawtext` normally. Some FFmpeg builds (the one the desktop
+ * app ships) don't include it, so when a bundled fonts folder is configured the text is written as an ASS subtitle file
+ * and drawn with libass, which every build has because burned-in subtitles need it anyway.
+ */
+export async function textFilter(assFile: string, lines: TextLine[], w: number, h: number): Promise<string> {
+  if (!config.ffmpeg.fontsDir) {
+    return lines.map((l) => `drawtext=${drawFont()}:text='${esc(l.text)}':fontcolor=white:fontsize=${l.size}${l.box ? ':box=1:boxcolor=black@0.45:boxborderw=8' : ''}:x=(w-text_w)/2:y=${l.middle ? '(h-text_h)/2' : `h*${l.top}+${l.plus}`}`).join(',');
+  }
+  const font = config.ffmpeg.font;
+  const clean = (t: string) => t.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim();
+  const ass = [
+    '[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${w}`, `PlayResY: ${h}`, 'WrapStyle: 2', '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    `Style: Plain,${font},40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,8,10,10,10,1`,
+    `Style: Box,${font},40,&H00FFFFFF,&H00FFFFFF,&H73000000,&H00000000,0,0,0,0,100,100,0,0,3,8,0,8,10,10,10,1`, '',
+    '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    ...lines.map((l) => {
+      const y = Math.round(l.middle ? h / 2 : h * l.top + l.plus);
+      return `Dialogue: 0,0:00:00.00,9:59:59.00,${l.box ? 'Box' : 'Plain'},,0,0,0,,{\\${l.middle ? 'an5' : 'an8'}\\pos(${Math.round(w / 2)},${y})\\fs${l.size}}${clean(l.text)}`;
+    }),
+    '',
+  ].join('\n');
+  await writeFile(assFile, ass);
+  return `ass=${filterPath(assFile)}${subtitleFontsDir()}`;
+}
+
 /** Placeholder still, used by mock providers. */
 export async function placeholderImage(out: string, lines: string[], w = 768, h = 1024, color = '#2b3a55') {
-  const txt = lines.slice(0, 6).map((l, i) =>
-    `drawtext=font='${config.ffmpeg.font}':text='${esc(l.slice(0, 60))}':fontcolor=white:fontsize=${i ? 24 : 40}:x=(w-text_w)/2:y=h*0.35+${i * 48}`).join(',');
+  const txt = await textFilter(`${out}.ass`, lines.slice(0, 6).map((l, i) => ({ text: l.slice(0, 60), size: i ? 24 : 40, top: 0.35, plus: i * 48 })), w, h);
   await ffmpeg(['-f', 'lavfi', '-i', `color=c=${color}:s=${w}x${h}`, '-vf', txt, '-frames:v', '1', out]);
 }
 
 /** Placeholder clip with timecode, a label and a tone, used by mock providers. */
 export async function placeholderVideo(out: string, lines: string[], seconds: number, w = 720, h = 1280, withAudio = true) {
-  const txt = lines.slice(0, 5).map((l, i) =>
-    `drawtext=font='${config.ffmpeg.font}':text='${esc(l.slice(0, 48))}':fontcolor=white:fontsize=${i ? 26 : 42}:box=1:boxcolor=black@0.45:boxborderw=8:x=(w-text_w)/2:y=h*0.30+${i * 56}`).join(',');
-  const tc = `drawtext=font='${config.ffmpeg.font}':text='%{pts\\:hms}':fontcolor=yellow:fontsize=28:x=24:y=24`;
+  const txt = await textFilter(`${out}.ass`, lines.slice(0, 5).map((l, i) => ({ text: l.slice(0, 48), size: i ? 26 : 42, top: 0.30, plus: i * 56, box: true })), w, h);
+  // The running timecode needs drawtext; builds without it just go without.
+  const tc = config.ffmpeg.fontsDir ? '' : `,drawtext=${drawFont()}:text='%{pts\\:hms}':fontcolor=yellow:fontsize=28:x=24:y=24`;
   const args = ['-f', 'lavfi', '-i', `testsrc2=s=${w}x${h}:r=24:d=${seconds}`];
   if (withAudio) args.push('-f', 'lavfi', '-i', `sine=frequency=${220 + Math.round(Math.random() * 440)}:sample_rate=48000:duration=${seconds}`);
-  args.push('-vf', `${txt},${tc}`, '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p');
+  args.push('-vf', `${txt}${tc}`, '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p');
   if (withAudio) args.push('-c:a', 'aac', '-b:a', '96k', '-shortest');
   args.push(out);
   await ffmpeg(args);
