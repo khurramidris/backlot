@@ -86,6 +86,12 @@ How the money works:
   unused plan credit expires at renewal. The ledger (`credit_events`) records `plan_expired` and `plan_credit`.
 - **Top-up credit** from packs, failed-render refunds and refunded setup fees never expire. Spending takes plan
   credit first.
+- **Everything is charged.** The setup fee (`SETUP_FEE_USD`) pays for a video's first automatic pass (story, screenplay,
+  cast, sets, shot plan); rendering is per second. Afterwards each action has its own price (`SELL_IMAGE_USD`,
+  `SELL_VOICE_USD`, `SELL_BREAKDOWN_USD`, `SELL_PLAN_USD`, `SELL_REVISION_USD`), listed for customers on the Billing
+  page. Each charge is taken when the work runs and refunded in full (to the never-expiring balance) if it fails, so
+  retries and duplicate clicks never cost the customer. Unaffordable actions are refused up front with a 402. Compare
+  "charged" with "our cost" on each customer's Admin page and tune the prices.
 - Creating, rendering, retakes and uploads need an active plan: `active`, `on_trial`, `past_due` (grace while
   Lemon Squeezy retries the card), or `cancelled` until its `ends_at`. When the subscription expires, the rest
   of the plan credit goes too. Top-ups stay.

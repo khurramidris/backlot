@@ -228,7 +228,11 @@ export type Me = {
   credits_enforced: boolean;
   plan: Plan;
   storage: { used_bytes: number; quota_bytes: number };
-  prices: { per_second: Record<string, number>; setup_fee_usd: number };
+  prices: {
+    per_second: Record<string, number>;
+    setup_fee_usd: number;
+    actions: { image: number; voice: number; breakdown: number; plan: number; revision: number };
+  };
   packs: { id: string; usd: number; available: boolean }[];
   payments_enabled: boolean;
 };

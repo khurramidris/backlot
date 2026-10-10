@@ -211,12 +211,32 @@ function PlanOffer({ me, busy, onSubscribe }: { me: Me; busy: boolean; onSubscri
 
 function Pricing({ me }: { me: Me }) {
   const perSecond = me.prices.per_second["768P"] ?? 0;
+  const a = me.prices.actions;
+  const rows: [string, string][] = [
+    ["A new video: script, screenplay, cast, sets and shot plan", usd(me.prices.setup_fee_usd)],
+    ["Filming and editing", `${usd(perSecond)} per second of finished footage`],
+    ["New image of a character, outfit, set or prop", usd(a.image)],
+    ["New voice for a character", usd(a.voice)],
+    ["Rewriting a shot from your note", usd(a.revision)],
+    ["Redesigning the cast and sets from the script", usd(a.breakdown)],
+    ["Re-planning an episode's shots", usd(a.plan)],
+  ];
   return (
-    <p className="mt-10 max-w-2xl text-sm text-muted-foreground">
-      Each video uses {usd(me.prices.setup_fee_usd)} of credit for writing, casting and planning,
-      then {usd(perSecond)} per second of finished footage (a one-minute episode is about{" "}
-      {usd(perSecond * 60)}). You see the exact price and approve it before anything is filmed.
-      Shots that fail to render are never charged.
-    </p>
+    <section className="mt-10 max-w-2xl">
+      <h2 className="meta-label mb-3">What things cost</h2>
+      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card text-sm">
+        {rows.map(([what, price]) => (
+          <li key={what} className="flex items-baseline justify-between gap-4 px-4 py-3">
+            <span>{what}</span>
+            <span className="shrink-0 font-mono text-muted-foreground">{price}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-sm text-muted-foreground">
+        A one-minute episode is about {usd(perSecond * 60)} to film. You see the exact price and
+        approve it before anything is filmed. Anything that fails is refunded automatically, and
+        monthly credit is spent first.
+      </p>
+    </section>
   );
 }

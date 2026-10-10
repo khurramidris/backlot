@@ -9,23 +9,32 @@ import { assembleCut } from './pipeline/assemble.js';
 import { runAutopilot, autopilotFailed } from './pipeline/autopilot.js';
 import { capacityTick } from './capacity.js';
 import { sql } from './db.js';
+import { config } from './config.js';
+import { paidForProject } from './billing.js';
 
 export function registerJobs() {
-  register('project.breakdown', (p, ctx) => runBreakdown(p.projectId, ctx, { force: p.force }));
+  register('project.breakdown', (p, ctx) => paidForProject(p.projectId, config.credits.actions.breakdown, 'breakdown', () => runBreakdown(p.projectId, ctx, { force: p.force })));
   register('project.breakdown:failed', async (p, ctx) => {
     await sql`update projects set status = 'imported', updated_at = now() where id = ${p.projectId} and status = 'breaking_down'`;
   });
-  register('asset.generate', (p, ctx) => generateAsset(p.assetId, ctx, { note: p.note }));
+  register('asset.generate', (p, ctx) => generateAsset(p.assetId, ctx, { note: p.note, covered: !!p.covered }));
   register('asset.generate:failed', async (p) => {
     await sql`update assets set status = 'failed', updated_at = now() where id = ${p.assetId} and status in ('generating','planned')`;
   });
-  register('episode.plan', (p, ctx) => planEpisode(p.episodeId, ctx, { force: p.force }));
+  register('episode.plan', async (p, ctx) => {
+    const [e] = await sql`select project_id from episodes where id = ${p.episodeId}`;
+    return paidForProject(e?.project_id, config.credits.actions.plan, 'shot_plan', () => planEpisode(p.episodeId, ctx, { force: p.force }));
+  });
   register('take.submit', (p) => submitTake(p.takeId));
   register('take.poll', (p) => pollTake(p.takeId));
   register('take.submit:failed', takeFailedHook);
   register('take.poll:failed', takeFailedHook);
   register('shot.retake', async (p, ctx) => {
-    if (p.note) { await ctx.progress('Revising the shot from the note'); await reviseShot(p.shotId, p.note); }
+    if (p.note) {
+      await ctx.progress('Revising the shot from the note');
+      const [sh] = await sql`select project_id from shots where id = ${p.shotId}`;
+      await paidForProject(sh?.project_id, config.credits.actions.revision, 'revision', () => reviseShot(p.shotId, p.note));
+    }
     return queueRender(p.shotId, { resolution: p.resolution });
   });
   register('shot.retake:failed', async (p) => {

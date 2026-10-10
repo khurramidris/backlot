@@ -73,6 +73,9 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 
 - Nothing expensive happens before the customer approves a price at the checkpoint.
 - A customer is never charged for a clip that failed to render.
+- Every billable action goes through `paid()` (`billing.ts`): charge, run, refund on failure, so nothing a customer
+  pays for can fail silently. The automatic first pass of a vibe project is marked `covered` (the setup fee pays for
+  it), so it is never charged twice.
 - Payment webhooks credit at most once (`payments` primary key), and credited amounts come from our config,
   never from the amount paid.
 - Without `ENFORCE_CREDITS` (local development, the mock e2e suites) there's no plan gate and no storage limit.

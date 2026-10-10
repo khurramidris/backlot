@@ -132,7 +132,17 @@ export const config = {
   credits: {
     enforce: bool(env.ENFORCE_CREDITS, production),
     sellPerSecond: { '768P': num(env.SELL_PER_SECOND_768P, 0.16), '2K': num(env.SELL_PER_SECOND_2K, 0.26) } as Record<string, number>,
-    setupFeeUsd: num(env.SETUP_FEE_USD, 0.5),        // per vibe project: script, cast, sets and shot plan
+    // Per vibe project: the first automatic pass (story, screenplay, cast, sets and shot plan). An estimate of our
+    // AI cost with margin: check "charged vs our cost" on the Admin customer page after the first real runs.
+    setupFeeUsd: num(env.SETUP_FEE_USD, 2),
+    // What each later action costs the customer. Charged when the work runs, refunded automatically if it fails.
+    actions: {
+      image: num(env.SELL_IMAGE_USD, 0.05),         // one character, outfit, set or prop image (re)generated
+      voice: num(env.SELL_VOICE_USD, 0.05),         // one character voice (re)designed
+      breakdown: num(env.SELL_BREAKDOWN_USD, 0.5),  // casting, costume and set design from the script (studio projects, re-runs)
+      plan: num(env.SELL_PLAN_USD, 0.75),           // the director's plan and shot list for an episode (studio projects, re-plans)
+      revision: num(env.SELL_REVISION_USD, 0.05),   // rewriting a shot from a review note
+    },
     signupUsd: num(env.SIGNUP_CREDIT_USD, 0),        // free credit when a user's account is first created
     // Top-up packs for subscribers. They go into the balance that never expires.
     packs: packs(env.CREDIT_PACKS || 'starter:10,creator:50,studio:200'),

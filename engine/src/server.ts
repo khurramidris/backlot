@@ -18,7 +18,7 @@ import { queueRender, refreshEpisodeStatus, mm } from './pipeline/render.js';
 import { requestCut } from './pipeline/assemble.js';
 import { costOf } from './pipeline/compiler.js';
 import { projectSpend } from './usage.js';
-import { ensureAccount, balanceOf, balances, settleTake, sellPrice, debit, planOf, requirePlan, storageUsed, storageQuotaBytes } from './billing.js';
+import { ensureAccount, balanceOf, balances, settleTake, sellPrice, debit, planOf, requirePlan, requireCredit, storageUsed, storageQuotaBytes } from './billing.js';
 import { paymentsEnabled, subscribeCheckout, topupCheckout, portalUrl, verifyLemonSignature, handleLemonEvent } from './lemonsqueezy.js';
 import { resolveBrief } from './pipeline/writer.js';
 import { startAutopilot } from './pipeline/autopilot.js';
@@ -146,6 +146,7 @@ async function takeView(t: any) {
 v1.post('/projects', async (c) => {
   await requirePlan(c.get('uid'));
   const b = await body(c);
+  if (c.req.query('breakdown') !== '0') await requireCredit(c.get('uid'), config.credits.actions.breakdown);
   const p = await createProject(c.get('uid'), b.project || b);
   const job = c.req.query('breakdown') === '0' ? null : await enqueue('project.breakdown', { projectId: p.id }, { projectId: p.id, maxAttempts: 2 });
   return c.json({ project: plain(p), job_id: job }, 201);
@@ -246,6 +247,8 @@ v1.delete('/projects/:id', async (c) => {
 });
 v1.post('/projects/:id/breakdown', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
+  await requirePlan(c.get('uid'));
+  await requireCredit(c.get('uid'), config.credits.actions.breakdown);
   const b = await body(c);
   return c.json({ job_id: await enqueue('project.breakdown', { projectId: p.id, force: !!b.force }, { projectId: p.id, maxAttempts: 2, dedupeKey: `bd:${p.id}` }) }, 202);
 });
@@ -296,6 +299,7 @@ v1.patch('/assets/:id', async (c) => {
 v1.post('/assets/:id/generate', async (c) => {
   const a = await own(c, 'assets', c.req.param('id'));
   await requirePlan(c.get('uid'));
+  await requireCredit(c.get('uid'), a.kind === 'voice' ? config.credits.actions.voice : config.credits.actions.image);
   const b = await body(c);
   if (a.status === 'approved') await sql`update assets set status = 'review' where id = ${a.id}`;
   await sql`update assets set status = 'planned', error = null where id = ${a.id}`;
@@ -360,6 +364,8 @@ v1.patch('/episodes/:id', async (c) => {
 });
 v1.post('/episodes/:id/plan', async (c) => {
   const e = await own(c, 'episodes', c.req.param('id'));
+  await requirePlan(c.get('uid'));
+  await requireCredit(c.get('uid'), config.credits.actions.plan);
   const b = await body(c);
   return c.json({ job_id: await enqueue('episode.plan', { episodeId: e.id, force: !!b.force }, { projectId: e.project_id, maxAttempts: 2, dedupeKey: `plan:${e.id}` }) }, 202);
 });
@@ -404,6 +410,7 @@ v1.post('/shots/:id/retake', async (c) => {
   const b = await body(c);
   const resolution = resolutionOf(b.resolution);
   const note = typeof b.note === 'string' ? b.note.slice(0, 1000) : '';
+  if (note && !b.prompt) await requireCredit(c.get('uid'), config.credits.actions.revision); // the rewrite itself is charged too
   // One update takes the shot out of review, so an autopilot pass can't re-approve the old take in between.
   await sql`update shots set status = 'queued', approved_take_id = null, error = null,
     ${b.prompt ? sql`prompt = ${String(b.prompt)}, prompt_locked = true, review_note = ${note || null},` : sql``} updated_at = now() where id = ${s.id}`;
@@ -504,7 +511,7 @@ v1.get('/me', async (c) => {
     user_id: uid, email: c.get('email'), is_admin: config.admins.includes(uid), balance_usd: credits.total, credits, credits_enforced: config.credits.enforce,
     plan: { ...(await planOf(uid)), name: config.plan.name, price_usd: config.plan.priceUsd, credits_usd: config.plan.creditsUsd, storage_gb: config.plan.storageGb },
     storage: { used_bytes: await storageUsed(uid), quota_bytes: storageQuotaBytes() },
-    prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd },
+    prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd, actions: config.credits.actions },
     packs: config.credits.packs.map((p) => ({ id: p.id, usd: p.usd, available: !!p.variantId })),
     payments_enabled: paymentsEnabled(), recent: events,
   });

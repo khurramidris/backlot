@@ -13,6 +13,7 @@ process.env.MOCK_PROVIDERS ??= '1';
 process.env.ALLOW_DEV_TOKENS = '1';
 process.env.ENFORCE_CREDITS = '1';
 process.env.SETUP_FEE_USD = '0.5';
+Object.assign(process.env, { SELL_IMAGE_USD: '0.05', SELL_VOICE_USD: '0.05', SELL_BREAKDOWN_USD: '0.5', SELL_PLAN_USD: '0.75', SELL_REVISION_USD: '0.05' });
 process.env.SELL_PER_SECOND_768P = '0.1';
 process.env.PORT ??= '8802';
 const LS_PORT = +process.env.PORT + 100;
@@ -191,8 +192,8 @@ assert.equal(d.latest_cuts[0].status, 'done');
 const { shots: after } = await api(A, 'GET', `/v1/episodes/${d.episodes[0].id}/shots`);
 const fixed = after.find((s: any) => s.id === fix.id);
 assert.equal(fixed.approved_take_id, fixed.takes[fixed.takes.length - 1].id, 'the new take is used');
-near(await balance(A), before - fixed.duration * 0.1, 'retake charged for one shot');
-log(`  ✓ retake used in a new cut; charged $${(fixed.duration * 0.1).toFixed(2)}`);
+near(await balance(A), before - fixed.duration * 0.1 - 0.05, 'retake charged for one shot plus the rewrite from the note');
+log(`  ✓ retake used in a new cut; charged $${(fixed.duration * 0.1).toFixed(2)} for the render and $0.05 for the rewrite`);
 
 log('\n7. Guards');
 const ep = d.episodes[0].id;
@@ -210,6 +211,30 @@ m = await me(A);
 near(m.credits.plan, 20, 'renewal resets plan credit to $20 (not added on top)'); near(m.credits.topup, 10, 'top-ups never expire');
 assert.ok(m.recent.some((e: any) => e.reason === 'plan_expired' && Math.abs(e.delta_usd + beforeRenewal.credits.plan) < 0.001), 'unused plan credit expired in the ledger');
 log(`  ✓ $${beforeRenewal.credits.plan.toFixed(2)} unused plan credit expired, $20 granted; $10 top-up kept`);
+
+log('\n8b. Everything after the first pass is charged');
+const waitJob = async (uid: string, id: number) => { for (let i = 0; i < 120; i++) { const j = (await api(uid, 'GET', `/v1/jobs/${id}`)).job; if (j.status === 'done' || j.status === 'failed') return j; await new Promise((r) => setTimeout(r, 500)); } throw new Error('job timeout'); };
+const ledger = async (uid: string, reason: string) => (await me(uid)).recent.filter((e: any) => e.reason === reason);
+const charName = (await api(A, 'GET', `/v1/projects/${pid}/assets`)).assets.find((x: any) => x.kind === 'character');
+let b0 = await balance(A);
+let g = await api(A, 'POST', `/v1/assets/${charName.id}/generate`, {});
+assert.equal((await waitJob(A, g.job_id)).status, 'done');
+near(await balance(A), b0 - 0.05, 'regenerating a character image costs $0.05');
+assert.equal((await ledger(A, 'image_gen')).length, 1, 'ledger shows the image charge');
+// failed work is refunded
+await api(A, 'PATCH', `/v1/assets/${charName.id}`, { prompt_override: '__fail__' });
+b0 = await balance(A);
+g = await api(A, 'POST', `/v1/assets/${charName.id}/generate`, {});
+assert.equal((await waitJob(A, g.job_id)).status, 'failed');
+near(await balance(A), b0, 'a failed generation is refunded in full');
+assert.ok((await ledger(A, 'refund')).some((e: any) => e.delta_usd > 0 && Math.abs(e.delta_usd - 0.05) < 1e-6), 'refund in the ledger');
+await api(A, 'PATCH', `/v1/assets/${charName.id}`, { prompt_override: '' });
+// studio steps: re-running the breakdown costs $0.50
+b0 = await balance(A);
+g = await api(A, 'POST', `/v1/projects/${pid}/breakdown`, { force: true });
+assert.equal((await waitJob(A, g.job_id)).status, 'done');
+near(await balance(A), b0 - 0.5, 'running the breakdown again costs $0.50');
+log('  ✓ image regeneration, breakdown and shot rewrites are charged; failures are refunded');
 
 log('\n9. Storage quota and deleting a project');
 const dir = join(process.env.STORAGE_DIR!, 'projects', pid);
@@ -235,6 +260,18 @@ const refused = await api(C, 'POST', `/v1/projects/${pc.id}/produce`, {}, [402])
 assert.equal(refused.error.code, 'insufficient_credit');
 near(await balance(C), 0.1, 'nothing charged when the render is refused');
 log('  ✓ render refused up front with a clear price; nothing charged');
+// …and so is everything else they can't afford, with nothing charged
+const tiny = await balance(C);
+assert.ok(tiny < 0.5);
+assert.equal((await api(C, 'POST', `/v1/projects/${pc.id}/breakdown`, { force: true }, [402])).error.code, 'insufficient_credit');
+near(await balance(C), tiny, 'nothing charged when refused');
+const charC = (await api(C, 'GET', `/v1/projects/${pc.id}/assets`)).assets.find((x: any) => x.kind === 'character');
+await api(C, 'POST', `/v1/assets/${charC.id}/generate`, {}); // $0.05 of the $0.10 left
+await new Promise((r) => setTimeout(r, 1500));
+await api(C, 'POST', `/v1/assets/${charC.id}/generate`, {}); // the other $0.05
+await new Promise((r) => setTimeout(r, 1500));
+assert.equal((await api(C, 'POST', `/v1/assets/${charC.id}/generate`, {}, [402])).error.code, 'insufficient_credit', 'out of credit: stopped before any work starts');
+log('  ✓ unaffordable work is refused up front, with a clear message');
 
 log('\n10b. Admin console');
 await api(C, 'GET', '/v1/admin/overview', undefined, [404]);
@@ -246,7 +283,7 @@ assert.equal((await api(ADMIN, 'GET', `/v1/admin/customers?q=${C}`)).customers[0
 const cd = await api(ADMIN, 'GET', `/v1/admin/customers/${C}`);
 assert.equal(cd.plan.active, true); assert.ok(cd.projects.length === 1 && cd.credit_events.length > 0);
 await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: 5 }, [400]); // a note is required
-near((await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: 5, note: 'beta goodwill' })).credits.topup, 5.1, 'admin grant');
+near((await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: 5, note: 'beta goodwill' })).credits.topup, 5, 'admin grant (their last 10 cents went on regenerations)');
 near((await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: -10, note: 'correction' })).credits.topup, 0, 'deduction never goes below zero');
 assert.ok((await me(C)).recent.some((e: any) => e.reason === 'admin_grant'), 'grant shows in the customer’s history');
 log('  ✓ admins see the overview and customers and can adjust credit; customers can’t reach any of it');
@@ -257,7 +294,7 @@ m = await me(A);
 assert.equal(m.plan.status, 'cancelled'); assert.equal(m.plan.active, true, 'access continues until the paid period ends');
 await subscription('subscription_expired', null, 501, 'expired', { ends_at: future(-1) });
 m = await me(A);
-assert.equal(m.plan.active, false); near(m.credits.plan, 0, 'plan credit gone'); near(m.credits.topup, 10, 'top-up kept');
+assert.equal(m.plan.active, false); near(m.credits.plan, 0, 'plan credit gone'); near(m.credits.topup, 10.05, 'top-up kept (plus the 5-cent refund of the failed image, which never expires)');
 assert.equal((await api(A, 'POST', '/v1/create', { prompt: 'A lighthouse keeper receives a letter from the future.' }, [402])).error.code, 'subscription_required');
 log('  ✓ cancelled plans work until they end; an expired plan blocks creating and clears plan credit');
 

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { placeholderImage, placeholderVideo, ffmpeg } from '../media/ffmpeg.js';
+import { ProviderError } from './minimax.js';
 
 const up = (s: any) => String(s || '').toUpperCase().trim();
 const snake = (s: any) => up(s).replace(/['’]/g, '').replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -163,6 +164,7 @@ function dims(aspect: string) {
   return a >= b ? [1024, Math.round((1024 * b) / a / 8) * 8] : [Math.round((1024 * a) / b / 8) * 8, 1024];
 }
 export async function mockImage(req: { prompt: string; aspect: string; label?: string[] }) {
+  if (req.prompt.includes('__fail__')) throw new ProviderError('mock image provider refused the prompt', 'sensitive_content', false); // lets tests prove failed work is refunded
   const dir = await mkdtemp(join(tmpdir(), 'mimg-'));
   try {
     const [w, h] = dims(req.aspect);

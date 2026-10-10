@@ -42,7 +42,7 @@ export async function runAutopilot(projectId: string, ctx: JobCtx): Promise<any 
     }
     case 'breakdown':
       await runBreakdown(p.id, ctx, { force: true });
-      await queueAllAssets(p.id);
+      await queueAllAssets(p.id, { covered: true }); // the setup fee pays for the first pass
       await setStage(p.id, 'casting');
       return again(3, 'Casting characters and sets');
     case 'casting': return casting(p, st);
@@ -62,7 +62,7 @@ async function casting(p: any, st: any): Promise<Again> {
   // Lock everything that's ready. Approving a parent re-queues any child made from an older image.
   const review = rows.filter((r: any) => r.status === 'review');
   if (review.length) {
-    for (const r of review) await approveAsset(r.id);
+    for (const r of review) await approveAsset(r.id, { covered: true });
     return again(1, 'Locking the cast and sets');
   }
   const retried = new Set<string>(st.retried_assets || []);
@@ -70,7 +70,7 @@ async function casting(p: any, st: any): Promise<Again> {
   if (retry.length) {
     for (const r of retry) {
       await sql`update assets set status = 'planned', error = null where id = ${r.id}`;
-      await enqueue('asset.generate', { assetId: r.id }, { projectId: p.id, dedupeKey: `asset:${r.id}`, maxAttempts: 3 });
+      await enqueue('asset.generate', { assetId: r.id, covered: true }, { projectId: p.id, dedupeKey: `asset:${r.id}`, maxAttempts: 3 });
     }
     await patchState(p.id, { retried_assets: [...retried, ...retry.map((r: any) => r.id)] });
     return again(3, 'Retrying references that failed');

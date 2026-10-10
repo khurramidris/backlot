@@ -70,6 +70,32 @@ export async function credit(tx: Tx, ownerId: string, usd: number, reason: strin
   await tx`insert into credit_events (owner_id, delta_usd, reason, ref) values (${ownerId}, ${usd}, ${reason}, ${ref ?? null})`;
 }
 
+/** Stop early with a clear 402 when the customer can't afford an action (the real charge happens when the work runs). */
+export async function requireCredit(ownerId: string, usd: number) {
+  if (!config.credits.enforce || usd <= 0) return;
+  const bal = await balanceOf(ownerId);
+  if (bal + 1e-9 < usd) throw new PermanentError(`This costs $${usd.toFixed(2)} and your balance is $${bal.toFixed(2)}. Add credits to continue.`, 'insufficient_credit');
+}
+
+/**
+ * Charge for one piece of work, then run it. If it fails the customer is refunded, so retries, duplicate clicks and
+ * provider errors never cost them. Each attempt is its own charge and its own refund. Pass usd 0 for work that the
+ * setup fee already covers.
+ */
+export async function paid<T>(ownerId: string, usd: number, reason: string, ref: string, work: () => Promise<T>): Promise<T> {
+  const taken = await sql.begin((tx) => debit(tx, ownerId, usd, reason, ref));
+  try { return await work(); } catch (e) {
+    if (taken > 0) await sql.begin((tx) => credit(tx, ownerId, taken, 'refund', ref));
+    throw e;
+  }
+}
+
+/** Like paid(), for a job that knows its project but not its owner. */
+export async function paidForProject<T>(projectId: string, usd: number, reason: string, work: () => Promise<T>): Promise<T> {
+  const [p] = projectId ? await sql`select owner_id from projects where id = ${projectId}` : [];
+  return p ? paid(p.owner_id, usd, reason, projectId, work) : work();
+}
+
 /** Close a take's hold exactly once: a good take keeps it, anything else gets it back. */
 export async function settleTake(takeId: string, succeeded: boolean) {
   await sql.begin(async (tx) => {

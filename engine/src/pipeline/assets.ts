@@ -10,6 +10,7 @@ import { generateImage, type RefImage } from '../providers/images.js';
 import { voiceDesign, ProviderError } from '../providers/minimax.js';
 import { mockVoice } from '../providers/mock.js';
 import { recordUsage } from '../usage.js';
+import { paid, requireCredit } from '../billing.js';
 import { trimAudio, probe } from '../media/ffmpeg.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -116,7 +117,11 @@ async function refFor(asset: any, role: RefImage['role']): Promise<RefImage | nu
   return { mime: asset.mime || 'image/png', data: await storage.get(asset.file_key), role };
 }
 
-export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: string } = {}): Promise<any | Again> {
+/**
+ * `covered` means the setup fee already pays for this generation (the automatic first pass of a vibe project);
+ * everything a customer asks for afterwards is charged, and refunded if it fails.
+ */
+export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: string; covered?: boolean } = {}): Promise<any | Again> {
   const [a] = await sql`select * from assets where id = ${assetId}`;
   if (!a) throw new PermanentError('asset not found');
   if (a.status === 'approved') return { skipped: 'approved' };
@@ -131,8 +136,22 @@ export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: s
 
   await sql`update assets set status = 'generating', error = null, updated_at = now() where id = ${assetId}`;
   await ctx?.progress(`Generating ${a.name}`);
+  const voice = a.kind === 'voice';
+  const price = o.covered ? 0 : voice ? config.credits.actions.voice : config.credits.actions.image;
   try {
-    if (a.kind === 'voice') return await generateVoice(a, p, parent);
+    return await paid(p.owner_id, price, voice ? 'voice_gen' : 'image_gen', assetId, () => produce());
+  } catch (e: any) {
+    const permanent = e instanceof PermanentError || (e instanceof ProviderError && !e.retryable);
+    if (permanent) {
+      await sql`update assets set status = 'failed', error = ${String(e.message).slice(0, 500)}, updated_at = now() where id = ${assetId}`;
+      throw e instanceof PermanentError ? e : new PermanentError(e.message, e.code);
+    }
+    await sql`update assets set status = 'planned', error = ${String(e.message).slice(0, 500)}, updated_at = now() where id = ${assetId}`;
+    throw e;
+  }
+
+  async function produce(): Promise<any> {
+    if (voice) return await generateVoice(a, p, parent);
 
     // Default wardrobe for the master portrait = the character's first look.
     if (a.kind === 'character' && !a.meta?.default_wardrobe) {
@@ -155,14 +174,6 @@ export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: s
       meta = meta || ${sql.json({ provider: img.provider, ...(parent ? { parent_file: parent.file_key } : {}), ...(a.meta?.default_wardrobe ? { default_wardrobe: a.meta.default_wardrobe } : {}) })}, updated_at = now() where id = ${assetId}`;
     await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'image', units: 1, cost: img.provider === 'mock' ? 0 : config.pricing.imageEach, ref: assetId });
     return { file_key: key };
-  } catch (e: any) {
-    const permanent = e instanceof PermanentError || (e instanceof ProviderError && !e.retryable);
-    if (permanent) {
-      await sql`update assets set status = 'failed', error = ${String(e.message).slice(0, 500)}, updated_at = now() where id = ${assetId}`;
-      throw e instanceof PermanentError ? e : new PermanentError(e.message, e.code);
-    }
-    await sql`update assets set status = 'planned', error = ${String(e.message).slice(0, 500)}, updated_at = now() where id = ${assetId}`;
-    throw e;
   }
 }
 
@@ -186,18 +197,23 @@ async function generateVoice(a: any, p: any, character: any) {
 }
 
 /** Queue generation for every asset that still needs an image or voice, masters first. */
-export async function queueAllAssets(projectId: string, o: { kinds?: string[] } = {}) {
+export async function queueAllAssets(projectId: string, o: { kinds?: string[]; covered?: boolean } = {}) {
   const rows = await sql`select id, kind from assets where project_id = ${projectId} and status in ('planned','failed')
     and coalesce((meta->>'unused')::boolean, false) = false ${o.kinds?.length ? sql`and kind in ${sql(o.kinds)}` : sql``}
     order by case kind when 'character' then 0 when 'location' then 1 when 'prop' then 2 when 'voice' then 3 else 4 end, priority desc`;
+  if (!o.covered && rows.length) { // a customer's bulk request: they must be able to afford all of it, up front
+    const [pr] = await sql`select owner_id from projects where id = ${projectId}`;
+    const total = rows.reduce((t: number, r: any) => t + (r.kind === 'voice' ? config.credits.actions.voice : config.credits.actions.image), 0);
+    await requireCredit(pr.owner_id, total);
+  }
   for (const r of rows) {
     await sql`update assets set status = 'planned', error = null where id = ${r.id}`;
-    await enqueue('asset.generate', { assetId: r.id }, { projectId, dedupeKey: `asset:${r.id}`, maxAttempts: 3 });
+    await enqueue('asset.generate', { assetId: r.id, covered: !!o.covered }, { projectId, dedupeKey: `asset:${r.id}`, maxAttempts: 3 });
   }
   return rows.length;
 }
 
-export async function approveAsset(assetId: string) {
+export async function approveAsset(assetId: string, o: { covered?: boolean } = {}) {
   const [a] = await sql`update assets set status = 'approved', approved_at = now(), updated_at = now()
     where id = ${assetId} and file_key is not null returning *`;
   if (!a) throw new PermanentError('Nothing to approve yet: generate or upload the asset first.', 'bad_state');
@@ -205,7 +221,7 @@ export async function approveAsset(assetId: string) {
   if (a.kind === 'character' || a.kind === 'location') {
     const stale = await sql`update assets set status = 'planned' where parent_id = ${a.id} and status in ('review','failed') and kind <> 'voice'
       and file_key is not null and (meta->>'parent_file') is distinct from ${a.file_key} returning id`;
-    for (const s of stale) await enqueue('asset.generate', { assetId: s.id }, { projectId: a.project_id, dedupeKey: `asset:${s.id}` });
+    for (const s of stale) await enqueue('asset.generate', { assetId: s.id, covered: !!o.covered }, { projectId: a.project_id, dedupeKey: `asset:${s.id}` });
   }
   return a;
 }
