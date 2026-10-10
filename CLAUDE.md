@@ -54,6 +54,9 @@ refuses to boot with these flags when `NODE_ENV=production`. Credits, the plan g
 off unless `ENFORCE_CREDITS=1`. To try billing locally, set it with the `LEMONSQUEEZY_*` variables and send
 signed webhooks yourself, like `engine/test/vibe.e2e.ts` does.
 
+Real providers on a laptop (Anthropic, MiniMax, your RunPod H3 through a tunnel): `docs/LOCAL.md`, `engine/env.local.sample`,
+`npm --prefix engine run local` and `preflight:local`.
+
 ## Not done yet
 - H3 inference in `gpu-worker/backends/h3.py` (needs the model weights and code).
 - Production accounts (Supabase, Railway, MiniMax, Lemon Squeezy): the founder follows `docs/BETA.md`. Admins see

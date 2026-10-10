@@ -27,7 +27,23 @@ export async function preflight(): Promise<Check[]> {
   };
   const https = (u: string) => /^https:\/\//.test(u);
 
+  // Running on your own computer (dev sign-in, nothing charged): skip the checks that only matter in production.
+  const local = process.env.NODE_ENV !== 'production' && config.auth.allowDevTokens && !config.mock;
+
   // ── Settings ──
+  if (local) {
+    add('Settings', 'Local run', 'ok', 'Dev sign-in, nothing charged: payments, Supabase and production settings are skipped.');
+    if (config.videoProvider === 'runpod') {
+      await run('Settings', 'RunPod can reach this computer', async () => {
+        // The GPU worker downloads reference images from, and uploads each finished clip to, PUBLIC_BASE_URL.
+        if (!https(config.publicBaseUrl)) return ['fail', 'Set PUBLIC_BASE_URL to the https address of a tunnel to this computer (e.g. cloudflared tunnel --url http://localhost:' + config.port + '). RunPod can’t reach localhost.'];
+        const r = await fetch(`${config.publicBaseUrl}/health`);
+        const j: any = await r.json().catch(() => null);
+        if (!r.ok || !j?.ok) return ['fail', `${config.publicBaseUrl}/health didn’t answer like Backlot. Is the tunnel running and pointing at port ${config.port}?`];
+        return ['ok', `${config.publicBaseUrl} reaches this engine.`];
+      });
+    }
+  } else {
   add('Settings', 'Production mode', process.env.NODE_ENV === 'production' ? 'ok' : 'warn',
     process.env.NODE_ENV === 'production' ? 'NODE_ENV=production.' : 'Set NODE_ENV=production on Railway. Without it, customers are not charged.');
   add('Settings', 'Charging customers', config.credits.enforce ? 'ok' : 'fail',
@@ -45,6 +61,8 @@ export async function preflight(): Promise<Check[]> {
   add('Settings', 'Admins', config.admins.length ? 'ok' : 'warn',
     config.admins.length ? `${config.admins.length} admin(s).` : 'Set ADMIN_USER_IDS to your user id (Account page) to see this page and the capacity page.');
 
+  }
+
   // ── Database ──
   await run('Database', 'Connects', async () => {
     const [r] = await sql`select count(*)::int n from schema_migrations`;
@@ -52,7 +70,7 @@ export async function preflight(): Promise<Check[]> {
   });
 
   // ── Sign-in ──
-  await run('Sign-in (Supabase)', 'Project and key', async () => {
+  if (!local) await run('Sign-in (Supabase)', 'Project and key', async () => {
     if (!config.auth.supabaseUrl || !config.auth.supabaseAnonKey) return ['fail', 'Set SUPABASE_URL and SUPABASE_ANON_KEY (Supabase → Project Settings → API).'];
     const r = await fetch(`${config.auth.supabaseUrl}/auth/v1/settings`, { headers: { apikey: config.auth.supabaseAnonKey } });
     if (!r.ok) return ['fail', `Supabase refused the key (${r.status}). Copy the anon/publishable key again from Project Settings → API.`];
@@ -105,11 +123,14 @@ export async function preflight(): Promise<Check[]> {
       if (!config.runpod.apiKey || !config.runpod.endpointId) return ['fail', 'Set RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID, or set VIDEO_PROVIDER=minimax to use MiniMax’s hosted video for now.'];
       const r = await fetch(`${config.runpod.apiBase}/${config.runpod.endpointId}/health`, { headers: { authorization: `Bearer ${config.runpod.apiKey}` } });
       if (!r.ok) return ['fail', `RunPod answered ${r.status}. Check the endpoint id and API key.`];
-      return ['warn', 'Endpoint reachable. The H3 model itself is not wired in yet (gpu-worker/backends/h3.py): until it is, use VIDEO_PROVIDER=minimax.'];
+      const h: any = await r.json().catch(() => ({}));
+      const w = h.workers || {}, j = h.jobs || {};
+      return ['warn', `Endpoint reachable (workers: ${w.idle ?? 0} idle, ${w.running ?? 0} running, ${w.initializing ?? 0} starting; jobs waiting: ${j.inQueue ?? 0}). Only a real test render proves the model and the handler work: make one short film.`];
     });
   } else add('Video', 'Provider', 'ok', 'MiniMax hosted video (MINIMAX_API_KEY above).');
 
   // ── Payments ──
+  if (local) return out;
   const ls = config.lemonsqueezy;
   const lsGet = async (path: string) => {
     const r = await fetch(`${ls.apiBase}/v1${path}`, { headers: { accept: 'application/vnd.api+json', authorization: `Bearer ${ls.apiKey}` } });

@@ -25,7 +25,8 @@ export function setPublicPlan(plan: PublicPlan | undefined) {
 /** Called once at startup with the settings the engine serves at /app-config.json. */
 export function initSupabase(url: string, anonKey: string, devUser: string | null = null) {
   devUserId = devUser;
-  client = createClient(url, anonKey, {
+  // Local development has no Supabase: the engine names a dev user instead. The client still needs some address.
+  client = createClient(url || "http://localhost:54321", anonKey || "local-development", {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
 }

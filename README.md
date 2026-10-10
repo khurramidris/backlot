@@ -10,6 +10,7 @@ video: microdramas, short films, web series and YouTube stories.
 | `engine/` | API, job queue, AI pipeline, FFmpeg, credits, subscriptions (Lemon Squeezy), storage quota |
 | `gpu-worker/` | The H3 video model on RunPod Serverless |
 | `docs/DEPLOY.md` | Supabase, RunPod, Lemon Squeezy and Railway setup, scaling, and the launch check |
+| `docs/LOCAL.md` | Run it on your computer with the real providers |
 | `docs/ARCHITECTURE.md` | How it fits together |
 
 ## Run it locally (no API keys, nothing billed)
@@ -23,6 +24,8 @@ MOCK_PROVIDERS=1 ALLOW_DEV_TOKENS=1 DATABASE_URL=postgres://postgres@localhost:5
 npm run dev:web                                 # http://localhost:5173, signed in as a dev user
 ```
 Mock providers write placeholder scripts, images and clips, so the whole flow runs end to end for free.
+
+To judge the real result with your own Anthropic, MiniMax and RunPod keys, see `docs/LOCAL.md`.
 
 ## Tests
 

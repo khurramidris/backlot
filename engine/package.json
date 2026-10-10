@@ -13,7 +13,10 @@
     "e2e:vibe": "tsx test/vibe.e2e.ts",
     "e2e:runpod": "tsx test/runpod.e2e.ts",
     "preflight": "tsx src/preflight.ts",
-    "eval:story": "tsx scripts/eval-story.ts"
+    "eval:story": "tsx scripts/eval-story.ts",
+    "local": "tsx watch --env-file=.env.local src/index.ts",
+    "preflight:local": "tsx --env-file=.env.local src/preflight.ts",
+    "eval:story:local": "tsx --env-file=.env.local scripts/eval-story.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
