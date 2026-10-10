@@ -24,7 +24,7 @@ interface VideoApi {
   cancelVideoTask?(id: string): Promise<void>;
 }
 /** RunPod is always real (tests point it at a fake server); otherwise mocks replace MiniMax in dev. */
-export const mm = (): VideoApi => (config.videoProvider === 'runpod' ? runpod : config.mock ? mockMinimax : real);
+export const mm = (provider: string = config.videoProvider): VideoApi => (provider === 'runpod' ? runpod : config.mock ? mockMinimax : real);
 export const takeKey = (t: any) => `projects/${t.project_id}/takes/${t.id}.mp4`;
 
 /** Create a new take for a shot and queue it. */
@@ -102,7 +102,7 @@ export async function submitTake(takeId: string): Promise<any | Again> {
   const [shot] = await sql`select * from shots where id = ${t.shot_id}`;
   const { body, loggable } = await buildRequest(shot, t.resolution);
   try {
-    const taskId = await mm().createVideoTask(body, { key: takeKey(t) });
+    const taskId = await mm(config.videoProvider).createVideoTask(body, { key: takeKey(t) });
     await sql`update takes set status = 'submitted', provider = ${config.videoProvider}, provider_task_id = ${taskId}, request = ${sql.json(loggable)}, submitted_at = now() where id = ${takeId}`;
     await sql`update shots set status = 'rendering', updated_at = now() where id = ${shot.id}`;
     await enqueue('take.poll', { takeId }, { projectId: t.project_id, delaySec: config.minimax.pollSeconds, maxAttempts: 8 });
@@ -120,7 +120,7 @@ export async function submitTake(takeId: string): Promise<any | Again> {
 export async function pollTake(takeId: string): Promise<any | Again> {
   const [t] = await sql`select * from takes where id = ${takeId}`;
   if (!t || !['submitted', 'running'].includes(t.status)) return { skipped: t?.status };
-  const task = await mm().queryVideoTask(t.provider_task_id);
+  const task = await mm(t.provider).queryVideoTask(t.provider_task_id); // the provider that took the job, not today's setting
   const age = (Date.now() - new Date(t.submitted_at).getTime()) / 60000;
   if (task.status === 'queued' || task.status === 'running' || task.status === 'processing' || task.status === 'preparing') {
     if (age > config.minimax.taskTimeoutMinutes) { await failTake(takeId, t.shot_id, `H3 task still ${task.status} after ${Math.round(age)} minutes`, 'timeout'); return { timeout: true }; }

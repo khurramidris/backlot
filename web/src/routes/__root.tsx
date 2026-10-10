@@ -86,10 +86,18 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event) => {
+    let lastUser: string | null = null;
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      const uid = session?.user.id ?? null;
+      const switched = !!uid && !!lastUser && uid !== lastUser; // a different person signed in without signing out first
+      if (uid) lastUser = uid;
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       void router.invalidate();
-      if (event !== "SIGNED_OUT") void queryClient.invalidateQueries();
+      if (event === "SIGNED_OUT" || switched) {
+        queryClient.clear(); // never show the previous account's credits and videos to the next person
+      } else {
+        void queryClient.invalidateQueries();
+      }
     });
     return () => data.subscription.unsubscribe();
   }, [router, queryClient]);

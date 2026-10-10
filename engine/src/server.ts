@@ -238,8 +238,8 @@ v1.delete('/projects/:id', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
   const open = await sql`select id from takes where project_id = ${p.id} and not settled and hold_usd > 0`;
   for (const t of open) await settleTake(t.id, false); // give back credit held for renders that will never be delivered
-  const running = await sql`select provider_task_id from takes where project_id = ${p.id} and status in ('submitted','running') and provider_task_id is not null`;
-  for (const t of running) await mm().cancelVideoTask?.(t.provider_task_id); // and stop paying for the GPU time
+  const running = await sql`select provider, provider_task_id from takes where project_id = ${p.id} and status in ('submitted','running') and provider_task_id is not null`;
+  for (const t of running) await mm(t.provider).cancelVideoTask?.(t.provider_task_id); // and stop paying for the GPU time
   await storage.delProject(p.id); // free the customer's storage: every clip, image and cut
   await sql`delete from projects where id = ${p.id}`;
   return c.json({ deleted: true });

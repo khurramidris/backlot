@@ -11,6 +11,8 @@ import { splitDebit, isActiveStatus } from '../src/billing.js';
 import { verifyLemonSignature } from '../src/lemonsqueezy.js';
 import { decideWorkersMin } from '../src/capacity.js';
 import { hit } from '../src/ratelimit.js';
+import { mm } from '../src/pipeline/render.js';
+import * as runpodProvider from '../src/providers/runpod.js';
 import { createHmac } from 'node:crypto';
 
 const SCRIPT = `INT. ASMA'S HOME - BEDROOM - NIGHT
@@ -157,4 +159,9 @@ test('rate limits: count per key, block over the limit, reset with the window', 
   assert.equal(hit('t:a', 3, 60, t0 + 1000), 59, 'fourth request waits for the window');
   assert.equal(hit('t:b', 3, 60, t0 + 1000), 0, 'other customers are unaffected');
   assert.equal(hit('t:a', 3, 60, t0 + 61_000), 0, 'new window, allowed again');
+});
+
+test('a render is polled on the provider that took it, whatever the current setting says', () => {
+  assert.equal(mm('runpod'), runpodProvider, 'a RunPod take is always polled on RunPod');
+  assert.notEqual(mm('minimax'), runpodProvider);
 });
