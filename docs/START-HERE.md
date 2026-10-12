@@ -284,10 +284,12 @@ and no setup of databases. It can also run in **demo mode** with no keys at all.
 3. Click the newest run called **Desktop** that has a green tick.
 4. Scroll to the bottom to **Artifacts**. You'll see three downloads:
    - `backlot-desktop-windows-latest` for **Windows**
-   - `backlot-desktop-macos-latest` for **Mac**
+   - `backlot-desktop-macos-latest` for **Mac** (only Macs with an Apple chip: M1, M2, M3 or newer. Not older Intel Macs)
    - `backlot-desktop-ubuntu-latest` for **Linux**
 5. Click the one for your computer. A zip file downloads.
 6. Open the zip file (double-click it). The installer is inside.
+
+Downloads stay on GitHub for 90 days. After that, ask me to build new ones.
 
 ## Step 2. Install it
 
