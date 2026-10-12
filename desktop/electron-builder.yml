@@ -26,4 +26,4 @@ win:
   target: [nsis]
 linux:
   category: AudioVideo
-  target: [AppImage, deb]
+  target: [AppImage]

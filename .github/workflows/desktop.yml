@@ -50,5 +50,4 @@ jobs:
             desktop/release/*.zip
             desktop/release/*.exe
             desktop/release/*.AppImage
-            desktop/release/*.deb
           if-no-files-found: error

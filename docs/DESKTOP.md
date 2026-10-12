@@ -70,7 +70,7 @@ cd desktop
 npm run dist             # builds everything, then writes the installer to desktop/release/
 ```
 
-Build on the system you want the installer for (Windows → `.exe`, macOS → `.dmg`, Linux → `.AppImage` and `.deb`),
+Build on the system you want the installer for (Windows → `.exe`, macOS → `.dmg`, Linux → `.AppImage`),
 because the database and FFmpeg binaries are specific to each system and CPU. The **Desktop** workflow in
 GitHub Actions does this for all three: run it by hand (Actions → Desktop → Run workflow) or push a tag such as
 `desktop-v0.1.0`, then download the installers from the run.
