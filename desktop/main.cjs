@@ -75,7 +75,8 @@ async function boot({ restart = false } = {}) {
     splash = null;
     buildMenu();
     return result;
-  } catch (e) {
+  } catch (error) {
+    const e = error instanceof Error ? error : new Error(`Backlot startup failed: ${String(error)}. Check the database messages in the logs.`);
     logFn('app', `start failed: ${e.stack || e.message}`);
     if (splash && !splash.isDestroyed()) splash.webContents.send('error', { message: e.message, tail: log.tail(14) });
     throw e;
@@ -161,3 +162,4 @@ app.whenReady().then(async () => {
   if (!settings.exists()) { showSettings({ first: true }); return; }
   boot().catch(() => {});
 });
+

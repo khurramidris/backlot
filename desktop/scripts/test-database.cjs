@@ -33,7 +33,8 @@ async function run() {
   try {
     const port = await freePort(0);
     pg = new EmbeddedPostgres({ databaseDir: path.join(root, 'legacy'), user: 'backlot', password: 'test-only', port,
-      persistent: true, initdbFlags: ['--encoding=WIN1252', '--locale=C'], onLog() {}, onError() {} });
+      persistent: true, initdbFlags: ['--encoding=WIN1252', '--locale=C'],
+      onLog: (m) => console.log('[postgres test]', m), onError: (m) => console.error('[postgres test]', m) });
     await pg.initialise();
     await pg.start();
     await pg.createDatabase('backlot');
@@ -84,4 +85,7 @@ async function run() {
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
-run().then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });
+// Keep a watchdog alive: an unexpectedly exited native process must not make Node silently
+// exit successfully with an unresolved startup promise.
+const watchdog = setTimeout(() => { console.error('Database regression did not finish'); process.exit(1); }, 120_000);
+run().then(() => { clearTimeout(watchdog); console.log('DATABASE REGRESSION OK'); process.exit(0); }, (e) => { clearTimeout(watchdog); console.error(e); process.exit(1); });
