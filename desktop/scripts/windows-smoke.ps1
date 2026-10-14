@@ -25,6 +25,10 @@ $desktop = '__DESKTOP__'
 $node = '__NODE__'
 $env:TEMP = '__TEMP__'
 $env:TMP = $env:TEMP
+$env:LOCALAPPDATA = Join-Path $env:TEMP 'local-appdata'
+$env:APPDATA = Join-Path $env:TEMP 'appdata'
+$env:ELECTRON_CACHE = Join-Path $env:LOCALAPPDATA 'electron'
+New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA, $env:ELECTRON_CACHE | Out-Null
 Set-Location $desktop
 & $node (Join-Path $desktop 'scripts/test-database.cjs')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
