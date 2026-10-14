@@ -61,10 +61,12 @@ async function start({ dir, log }) {
 
   const { default: EmbeddedPostgres } = await import('embedded-postgres');
   const port = await freePort(0);
+  let lastMessages = '';
+  const pgLog = (message) => { lastMessages = (lastMessages + String(message)).slice(-4000); log('postgres', message); };
   const pg = new EmbeddedPostgres({
     databaseDir: dataDir, user: USER, password, port, persistent: true,
     initdbFlags: INITDB_FLAGS,
-    onLog: (m) => log('postgres', m), onError: (m) => log('postgres', m),
+    onLog: pgLog, onError: pgLog,
   });
   let started = false;
   try {
@@ -74,6 +76,8 @@ async function start({ dir, log }) {
     await ensureDatabase(pg, log);
   } catch (error) {
     if (started) await pg.stop().catch((e) => log('postgres', `stop after failed start: ${e.message}`));
+    if (/administrative permissions/.test(lastMessages)) throw new Error('PostgreSQL cannot run as administrator. Close Backlot and open it normally, without Run as administrator.');
+    if (!error) throw new Error(`The database stopped before startup completed. ${lastMessages.slice(-1000)}`);
     throw error;
   }
   return {

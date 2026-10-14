@@ -41,9 +41,11 @@ jobs:
       - run: npm ci
       - run: node scripts/prepare.mjs
       - run: npm run test:database
-      - name: Demo startup and film export on Windows
+        if: runner.os != 'Windows'
+      - name: Database recovery, demo startup and film export as a Windows standard user
         if: runner.os == 'Windows'
-        run: npm run smoke
+        run: ./scripts/windows-smoke.ps1
+        shell: pwsh
       - run: npx electron-builder --publish never
         env: { CSC_IDENTITY_AUTO_DISCOVERY: "false" } # unsigned builds; see docs/DESKTOP.md
       - uses: actions/upload-artifact@v5
