@@ -11,6 +11,8 @@ exports.default = async function afterPack(context) {
   const from = path.join(__dirname, '..', 'stage', 'engine', 'node_modules');
   const to = path.join(resources, 'engine', 'node_modules');
   if (!fs.existsSync(from)) throw new Error(`Run "npm run prepare:app" first: ${from} is missing.`);
-  fs.cpSync(from, to, { recursive: true });
+  // Keep relative links as they are (cpSync would point them at this build machine) and leave out .bin, which only
+  // holds command-line shortcuts: macOS signing refuses a bundle with a link that points outside it.
+  fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true, filter: (src) => path.basename(src) !== '.bin' });
   console.log(`  • engine dependencies copied  to=${to.replace(appOutDir, '.')}`);
 };
