@@ -76,8 +76,16 @@ GitHub Actions does this for all three: run it by hand (Actions → Desktop → 
 `desktop-v0.1.0`, then download the installers from the run.
 
 **Unsigned builds.** Without a code-signing certificate, Windows SmartScreen and macOS Gatekeeper warn on first
-launch (Windows: "More info → Run anyway"; macOS: right-click the app → Open). Signing needs an Apple Developer account
-and a Windows code-signing certificate; electron-builder picks them up from the usual `CSC_*` environment variables.
+launch (Windows: "More info → Run anyway"; macOS 15+: System Settings → Privacy & Security → Open Anyway, older macOS:
+right-click the app → Open). The Mac build is signed ad hoc (`identity: "-"` in `electron-builder.yml`): with no
+signature at all, Apple-chip Macs call a downloaded app "damaged" and offer no way to open it. Real signing needs an
+Apple Developer account and a Windows code-signing certificate; electron-builder picks them up from the usual `CSC_*`
+environment variables (then remove `identity: "-"`).
+
+**Linux AppImage.** It needs FUSE 2 (`libfuse2t64` on Ubuntu 24.04+, `libfuse2` before). It runs Chromium without its
+sandbox (`main.cjs`, when `APPIMAGE` is set): an AppImage can't carry the setuid helper and Ubuntu 24.04+ blocks the
+user-namespace sandbox, so otherwise it would not open. The engine only listens on 127.0.0.1 (`LISTEN_HOST`), because
+sign-in is automatic.
 
 ## Check it works
 

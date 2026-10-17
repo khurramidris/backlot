@@ -14,4 +14,4 @@ if (config.autoMigrate) await migrate();
 registerJobs();
 await startCapacityController();
 if (config.runWorker) startWorker();
-serve({ fetch: app.fetch, port: config.port }, (i) => console.log(`[api] listening on :${i.port}${config.mock ? ' (MOCK PROVIDERS)' : ''}`));
+serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (i) => console.log(`[api] listening on :${i.port}${config.mock ? ' (MOCK PROVIDERS)' : ''}`));

@@ -82,6 +82,7 @@ test('engine environment: demo is fully mocked; real passes keys; the shell does
   const demo = settingsLib.engineEnv({ ...base, mode: 'demo' }, ctx);
   assert.equal(demo.MOCK_PROVIDERS, '1');
   assert.equal(demo.ALLOW_DEV_TOKENS, '1');
+  assert.equal(demo.LISTEN_HOST, '127.0.0.1', 'automatic sign-in must not be reachable from other machines');
   assert.equal(demo.DATABASE_URL, ctx.databaseUrl);
   assert.equal(demo.ANTHROPIC_API_KEY, undefined);
   assert.equal(demo.NODE_ENV, undefined, 'dev sign-in is refused when NODE_ENV=production');

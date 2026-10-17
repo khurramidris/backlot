@@ -11,7 +11,8 @@ const keytest = require('./lib/keytest.cjs');
 
 const SMOKE = process.env.BACKLOT_SMOKE; // automated check: demo mode, screenshot, exit
 if (process.env.BACKLOT_DATA_DIR) app.setPath('userData', process.env.BACKLOT_DATA_DIR);
-if (process.env.BACKLOT_NO_SANDBOX) app.commandLine.appendSwitch('no-sandbox');
+// An AppImage can't ship Chromium's setuid sandbox helper, and Ubuntu 24.04+ blocks the other sandbox, so it wouldn't open at all.
+if (process.env.BACKLOT_NO_SANDBOX || (process.platform === 'linux' && process.env.APPIMAGE)) app.commandLine.appendSwitch('no-sandbox');
 if (SMOKE) { app.disableHardwareAcceleration(); app.commandLine.appendSwitch('disable-dev-shm-usage'); app.commandLine.appendSwitch('disable-gpu'); app.commandLine.appendSwitch('in-process-gpu'); } // headless test machines have no GPU and a locked-down /dev/shm
 
 // embedded-postgres registers its own exit hook that can throw once we have already stopped it cleanly: log, don't crash.

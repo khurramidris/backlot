@@ -20,6 +20,7 @@ const packs = (v: string) => v.split(',').map((p) => p.split(':').map((x) => x.t
 
 export const config = {
   port: num(env.PORT, 8787),
+  host: env.LISTEN_HOST || undefined,                     // e.g. 127.0.0.1 to accept only this computer (the desktop app); unset = all
   publicBaseUrl: (env.PUBLIC_BASE_URL || '').replace(/\/$/, ''), // e.g. https://engine.yourdomain.com
   databaseUrl: env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/studio',
   autoMigrate: bool(env.AUTO_MIGRATE, true),

@@ -300,14 +300,23 @@ Downloads stay on GitHub for 90 days. After that, ask me to build new ones.
 3. Follow the installer. Open **Backlot** from the Start menu.
 
 **On a Mac**
-1. Double-click the **.dmg** file. Drag **Backlot** into **Applications**.
-2. Don't double-click it yet. Open **Applications**, **right-click Backlot**, and choose **Open**. Then click **Open**
-   again in the box that appears. (The first time only. This is because the app isn't signed with a paid
-   certificate yet.)
+1. Double-click the file that ends in **.dmg** (not the one ending in .zip). Drag **Backlot** into **Applications**.
+2. Open **Applications** and double-click **Backlot**. The Mac will say it **can't check Backlot** and won't open it.
+   That's expected: the app isn't signed with a paid Apple certificate yet. Click **Done** (or **OK**).
+3. Open **System Settings** (the Apple menu, top left), then **Privacy & Security**. Scroll down to the line that
+   says **"Backlot" was blocked** and click **Open Anyway**. Type your Mac password if asked, then click
+   **Open Anyway** once more.
+   - On an older Mac (macOS 14 or earlier) you can instead **right-click Backlot** in Applications, choose **Open**,
+     then click **Open** again.
+4. You only do this the first time. After that Backlot opens normally.
+5. If the Mac says Backlot **"is damaged and can't be opened"**, you have an older download: get the newest one
+   from Actions (Step 1) and install that instead.
 
-**On Linux**
-- Right-click the **.AppImage** file, choose **Properties**, then **Permissions**, tick **Allow executing as a program**,
-  then double-click it.
+**On Linux** (Ubuntu or similar)
+1. Right-click the **.AppImage** file, choose **Properties**, then **Permissions**, tick **Allow executing as a program**.
+2. Double-click it. If nothing happens, open **Terminal**, paste this line, press Enter, type your password, and
+   then double-click the file again:
+   `sudo apt install -y libfuse2t64 || sudo apt install -y libfuse2`
 
 ## Step 3. First start
 
