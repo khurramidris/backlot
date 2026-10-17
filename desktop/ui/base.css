@@ -1,0 +1,18 @@
+/* The Backlot brand (docs/brand): Cinema Black stage, Projection Ivory type, one Studio Orange accent. */
+:root {
+  --black: #0F0F0F; --surface: #171716; --raised: #1F1F1D; --border: #2E2D2A; --ivory: #F4F1E5; --muted: #A29E91;
+  --orange: #FF5E2A; --yellow: #F7C342; --red: #E5484D; --green: #46B37B;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--black); color: var(--ivory); font: 14px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.mark { width: 36px; height: 36px; background: var(--ivory); color: var(--black); border-radius: 8px; display: grid; place-items: center; font: 800 22px/1 Impact, "Arial Narrow Bold", sans-serif; position: relative; }
+.mark::after { content: ""; position: absolute; right: 5px; bottom: 6px; border-left: 8px solid var(--orange); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.word { font: 400 26px/1 Impact, "Arial Narrow Bold", sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+.dash { width: 28px; height: 3px; background: var(--orange); margin: 14px 0 0; }
+button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); color: var(--ivory); padding: 9px 16px; }
+button:hover { border-color: #55534d; }
+button.primary { background: var(--orange); border-color: var(--orange); color: #14110d; font-weight: 700; }
+button.primary:hover { filter: brightness(1.08); }
+button:disabled { opacity: .5; cursor: default; }
+a { color: var(--orange); text-decoration: none; cursor: pointer; } a:hover { text-decoration: underline; }

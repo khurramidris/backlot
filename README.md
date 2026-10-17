@@ -10,6 +10,7 @@ video: microdramas, short films, web series and YouTube stories.
 | `engine/` | API, job queue, AI pipeline, FFmpeg, credits, subscriptions (Lemon Squeezy), storage quota |
 | `gpu-worker/` | The H3 video model on RunPod Serverless |
 | `docs/DEPLOY.md` | Supabase, RunPod, Lemon Squeezy and Railway setup, scaling, and the launch check |
+| `desktop/`, `docs/DESKTOP.md` | The desktop app: the whole studio in one installable window, with your own keys |
 | `docs/LOCAL.md` | Run it on your computer with the real providers |
 | `docs/ARCHITECTURE.md` | How it fits together |
 

@@ -14,6 +14,12 @@ import { hit } from '../src/ratelimit.js';
 import { mm } from '../src/pipeline/render.js';
 import * as runpodProvider from '../src/providers/runpod.js';
 import { createHmac } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { config } from '../src/config.js';
+import { placeholderImage, textFilter } from '../src/media/ffmpeg.js';
 
 const SCRIPT = `INT. ASMA'S HOME - BEDROOM - NIGHT
 
@@ -164,4 +170,34 @@ test('rate limits: count per key, block over the limit, reset with the window', 
 test('a render is polled on the provider that took it, whatever the current setting says', () => {
   assert.equal(mm('runpod'), runpodProvider, 'a RunPod take is always polled on RunPod');
   assert.notEqual(mm('minimax'), runpodProvider);
+});
+
+test('text in the picture: drawtext on servers, an ASS file where the FFmpeg build has no drawtext (desktop app)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'txt-'));
+  const keep = { ...config.ffmpeg };
+  try {
+    config.ffmpeg.fontsDir = '';
+    const dt = await textFilter(join(dir, 'a.ass'), [{ text: "Hi, it's 10:30", size: 30, top: 0.3, plus: 56 }, { text: 'SLATE', size: 20, top: 0, plus: 0, middle: true }], 720, 1280);
+    assert.match(dt, /^drawtext=.*y=h\*0\.3\+56,drawtext=.*y=\(h-text_h\)\/2$/);
+    assert.ok(!existsSync(join(dir, 'a.ass')), 'drawtext needs no file');
+
+    config.ffmpeg.fontsDir = 'C:\\Fonts dir'; config.ffmpeg.fontFile = '';
+    const ass = await textFilter(join(dir, 'b.ass'), [{ text: 'A {bad} \\N line', size: 30, top: 0.3, plus: 56, box: true }, { text: 'SLATE', size: 20, top: 0, plus: 0, middle: true }], 720, 1280);
+    assert.match(ass, /^ass='.*b\.ass':fontsdir='C\\:\/Fonts dir'$/, 'paths are quoted, with forward slashes and the drive colon escaped');
+    const file = await readFile(join(dir, 'b.ass'), 'utf8');
+    assert.match(file, /PlayResX: 720\nPlayResY: 1280/);
+    assert.match(file, /Box,,0,0,0,,\{\\an8\\pos\(360,440\)\\fs30\}A bad N line/, 'override braces and backslashes are stripped from the text');
+    assert.match(file, /Plain,,0,0,0,,\{\\an5\\pos\(360,640\)\\fs20\}SLATE/);
+
+    // The real thing, if this machine has FFmpeg with libass and a font folder.
+    const fonts = '/usr/share/fonts/truetype/dejavu';
+    if (existsSync(fonts)) {
+      config.ffmpeg.fontsDir = fonts;
+      try { await placeholderImage(join(dir, 'p.png'), ['TITLE', 'second line'], 320, 240); } catch (e: any) { if (/No such filter|ENOENT/.test(e.message)) return t.skip('FFmpeg without libass'); throw e; }
+      assert.ok((await stat(join(dir, 'p.png'))).size > 1000, 'placeholder image written');
+    }
+  } finally {
+    Object.assign(config.ffmpeg, keep);
+    await rm(dir, { recursive: true, force: true });
+  }
 });

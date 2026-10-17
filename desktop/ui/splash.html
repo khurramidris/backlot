@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Backlot</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<link rel="stylesheet" href="base.css">
+<style>
+  body { display: flex; flex-direction: column; justify-content: flex-start; height: 100vh; padding: 56px 56px 0; -webkit-app-region: drag; }
+  button, a { -webkit-app-region: no-drag; }
+  h1 { font-size: 20px; margin: 28px 0 6px; }
+  .steps { list-style: none; padding: 0; margin: 18px 0 0; color: var(--muted); }
+  .steps li { padding: 4px 0 4px 26px; position: relative; }
+  .steps li::before { content: ""; position: absolute; left: 4px; top: 11px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--border); }
+  .steps li.on { color: var(--ivory); } .steps li.on::before { border-color: var(--orange); background: var(--orange); animation: pulse 1s infinite alternate; }
+  .steps li.done::before { border-color: var(--green); background: var(--green); animation: none; }
+  @keyframes pulse { to { opacity: .35; } }
+  .msg { color: var(--muted); min-height: 21px; }
+  .err { display: none; margin-top: 18px; }
+  .err p { color: var(--ivory); margin: 0 0 8px; }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 120px; overflow: auto; font: 11px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); white-space: pre-wrap; margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+</style></head>
+<body>
+  <div class="brand"><div class="mark">B</div><div class="word">Backlot</div></div>
+  <div class="dash"></div>
+  <h1 id="title">Getting the studio ready…</h1>
+  <div class="msg" id="msg">One moment.</div>
+  <ul class="steps" id="steps">
+    <li data-step="database">Database</li>
+    <li data-step="tunnel" id="tunnelStep" style="display:none">Public address for RunPod</li>
+    <li data-step="engine">Studio</li>
+  </ul>
+  <div class="err" id="err">
+    <p id="errmsg"></p>
+    <pre id="errlog"></pre>
+    <div class="row">
+      <button class="primary" id="retry">Try again</button>
+      <button id="settings">Open settings</button>
+      <button id="logs">Show logs</button>
+      <button id="quit">Quit</button>
+    </div>
+  </div>
+<script>
+  const order = ['database', 'tunnel', 'engine'];
+  const li = (s) => document.querySelector(`[data-step="${s}"]`);
+  window.backlot.on('reset', () => {
+    document.getElementById('err').style.display = 'none';
+    document.getElementById('steps').style.display = '';
+    document.getElementById('title').textContent = 'Getting the studio ready…';
+    document.querySelectorAll('.steps li').forEach((e) => e.className = '');
+  });
+  window.backlot.on('status', ({ message, step }) => {
+    document.getElementById('msg').textContent = message;
+    if (step === 'tunnel') document.getElementById('tunnelStep').style.display = '';
+    const i = order.indexOf(step);
+    order.forEach((s, j) => { const e = li(s); if (e) e.className = j < i ? 'done' : j === i ? 'on' : ''; });
+  });
+  window.backlot.on('error', ({ message, tail }) => {
+    document.getElementById('title').textContent = 'Backlot could not start';
+    document.getElementById('msg').textContent = '';
+    document.getElementById('errmsg').textContent = message;
+    document.getElementById('errlog').textContent = tail || '';
+    document.getElementById('errlog').style.display = tail ? '' : 'none';
+    document.getElementById('err').style.display = 'block';
+    document.getElementById('steps').style.display = 'none';
+  });
+  document.getElementById('retry').onclick = () => window.backlot.retry();
+  document.getElementById('settings').onclick = () => window.backlot.openSettings();
+  document.getElementById('logs').onclick = () => window.backlot.openLogs();
+  document.getElementById('quit').onclick = () => window.backlot.quit();
+</script></body></html>

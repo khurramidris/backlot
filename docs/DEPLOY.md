@@ -151,6 +151,9 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
   - 200 renders or retakes an hour
   - 300 asset calls an hour
   Over a limit the API answers 429 with `Retry-After`.
+- **Fonts:** the Docker image installs DejaVu Sans, which subtitles and slates use. To use a font file that ships with the
+  app instead (the desktop app does), set `SUBTITLE_FONT_FILE` and `SUBTITLE_FONTS_DIR`; with the fonts folder set, text
+  drawn into pictures uses libass, so FFmpeg builds without the `drawtext` filter still work.
 
 ## 6. Before you take real money
 

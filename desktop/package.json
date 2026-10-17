@@ -1,0 +1,26 @@
+{
+  "name": "backlot-desktop",
+  "version": "0.1.0",
+  "description": "Backlot for your desktop: the whole studio in one app, with its own database and your own API keys",
+  "main": "main.cjs",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Backlot",
+  "scripts": {
+    "prepare:app": "node scripts/prepare.mjs",
+    "start": "electron .",
+    "dev": "node scripts/prepare.mjs --quick && electron .",
+    "dist": "node scripts/prepare.mjs && electron-builder",
+    "test": "node --test test/*.test.cjs",
+    "smoke": "node scripts/smoke.cjs"
+  },
+  "dependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "embedded-postgres": "18.4.0-beta.17",
+    "ffmpeg-static": "^5.3.0"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "^26.15.3"
+  }
+}

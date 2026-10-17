@@ -57,6 +57,11 @@ signed webhooks yourself, like `engine/test/vibe.e2e.ts` does.
 Real providers on a laptop (Anthropic, MiniMax, your RunPod H3 through a tunnel): `docs/LOCAL.md`, `engine/env.local.sample`,
 `npm --prefix engine run local` and `preflight:local`.
 
+Desktop app (`desktop/`, branch `backlot-desktop`): Electron around the same engine and web app, with embedded Postgres, bundled
+FFmpeg and an automatic cloudflared tunnel for RunPod. See `docs/DESKTOP.md`; check with `npm --prefix desktop test` and
+`npm --prefix desktop run smoke` (needs a non-root user). Its FFmpeg lacks `drawtext`, so text drawn into pictures goes through
+`textFilter()` in `engine/src/media/ffmpeg.ts`.
+
 ## Not done yet
 - H3 inference in `gpu-worker/backends/h3.py` (needs the model weights and code).
 - Production accounts (Supabase, Railway, MiniMax, Lemon Squeezy): the founder follows `docs/BETA.md`. Admins see

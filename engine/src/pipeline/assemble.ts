@@ -10,7 +10,7 @@ import { sql } from '../db.js';
 import { config } from '../config.js';
 import { storage } from '../storage.js';
 import { PermanentError } from '../queue.js';
-import { ffmpeg, probe, thumbnail } from '../media/ffmpeg.js';
+import { ffmpeg, probe, subtitleFontsDir, textFilter, thumbnail } from '../media/ffmpeg.js';
 import { speechSeconds, type ShotPlan } from './compiler.js';
 
 // Every option ends up inside an FFmpeg filter graph, so only typed, bounded values are accepted.
@@ -125,8 +125,9 @@ export async function assembleCut(cutId: string, progress: (s: string) => Promis
         await ffmpeg(args);
       } else {
         // Preview only: a slate where a shot has no take yet.
+        const slate = await textFilter(`${out}.ass`, [{ text: `SHOT ${s.code} NOT RENDERED`, size: Math.round(H / 24), top: 0, plus: 0, middle: true }], W, H);
         await ffmpeg(['-f', 'lavfi', '-i', `color=c=black:s=${W}x${H}:r=${FPS}:d=${s.duration}`, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
-          '-vf', `drawtext=font='${config.ffmpeg.font}':text='SHOT ${s.code} NOT RENDERED':fontcolor=white:fontsize=${Math.round(H / 24)}:x=(w-text_w)/2:y=(h-text_h)/2`,
+          '-vf', slate,
           '-t', String(s.duration), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', out]);
       }
       const real = (await probe(out)).duration;
@@ -151,7 +152,7 @@ export async function assembleCut(cutId: string, progress: (s: string) => Promis
     const vf: string[] = [];
     if (o.burn_subtitles && srt.trim()) {
       const fs = portrait ? 11 : 16, mv = portrait ? 40 : 22;
-      vf.push(`subtitles=subs.srt:force_style='FontName=${config.ffmpeg.font},FontSize=${fs},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,Outline=1.6,Shadow=0,MarginV=${mv},Alignment=2,Bold=1'`);
+      vf.push(`subtitles=subs.srt${subtitleFontsDir()}:force_style='FontName=${config.ffmpeg.font},FontSize=${fs},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,Outline=1.6,Shadow=0,MarginV=${mv},Alignment=2,Bold=1'`);
     }
     if (o.fade) vf.push(`fade=t=in:st=0:d=0.4,fade=t=out:st=${Math.max(0, total - 0.6).toFixed(2)}:d=0.6`);
     const args = ['-i', joined];

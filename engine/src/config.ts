@@ -20,6 +20,7 @@ const packs = (v: string) => v.split(',').map((p) => p.split(':').map((x) => x.t
 
 export const config = {
   port: num(env.PORT, 8787),
+  host: env.LISTEN_HOST || undefined,                     // e.g. 127.0.0.1 to accept only this computer (the desktop app); unset = all
   publicBaseUrl: (env.PUBLIC_BASE_URL || '').replace(/\/$/, ''), // e.g. https://engine.yourdomain.com
   databaseUrl: env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/studio',
   autoMigrate: bool(env.AUTO_MIGRATE, true),
@@ -172,7 +173,9 @@ export const config = {
     maxRuntimeSeconds: num(env.MAX_RUNTIME_SECONDS, 600), // hard cap per project at launch
   },
 
-  ffmpeg: { bin: env.FFMPEG_BIN || 'ffmpeg', probe: env.FFPROBE_BIN || 'ffprobe', font: env.SUBTITLE_FONT || 'DejaVu Sans' },
+  ffmpeg: { bin: env.FFMPEG_BIN || 'ffmpeg', probe: env.FFPROBE_BIN || 'ffprobe', font: env.SUBTITLE_FONT || 'DejaVu Sans',
+    // Optional: a font file and folder shipped with the app (the desktop app uses these), for machines without fontconfig.
+    fontFile: env.SUBTITLE_FONT_FILE || '', fontsDir: env.SUBTITLE_FONTS_DIR || '' },
 
   // Replace every paid provider with local fakes (no keys needed). For development and CI only.
   mock: bool(env.MOCK_PROVIDERS, false),
