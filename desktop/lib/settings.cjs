@@ -105,6 +105,7 @@ function engineEnv(s, ctx) {
   Object.assign(env, {
     ELECTRON_RUN_AS_NODE: '1',
     ALLOW_DEV_TOKENS: '1', // you are the only user: signed in as a fixed local user, nothing is charged
+    LISTEN_HOST: '127.0.0.1', // only this computer: sign-in is automatic, so other machines on the network must not reach it
     PORT: String(ctx.port),
     DATABASE_URL: ctx.databaseUrl,
     STORAGE_DIR: ctx.storageDir,

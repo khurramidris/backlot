@@ -21,6 +21,9 @@ extraResources:
   - { from: stage/web, to: web }
 mac:
   category: public.app-category.video
+  # No Apple certificate yet: sign ad hoc, or Apple-chip Macs call the downloaded app "damaged" and refuse to open it.
+  identity: "-"
+  hardenedRuntime: false
   target: [dmg, zip]
 win:
   target: [nsis]
