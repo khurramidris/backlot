@@ -29,14 +29,18 @@ Everything below is a one-time setup. After it, every push to `main` that passes
 3. **Project Settings → API**: copy the Project URL → `SUPABASE_URL`, and the anon/publishable key →
    `SUPABASE_ANON_KEY`.
 4. **Connect → Session pooler**: copy the connection string → `DATABASE_URL`. The engine creates its tables on
-   first boot.
+   first boot, and encrypts the connection by itself (an `sslmode` in the URL overrides that).
 5. **Storage**: create a **private** bucket `backlot`. **Storage → S3 connection**: create access keys →
    `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET=backlot`,
    `STORAGE_DRIVER=s3`.
 
-## 2. RunPod (the video model)
+## 2. Video: MiniMax now, RunPod later
 
-Follow `gpu-worker/README.md`:
+Launch with MiniMax's hosted H3: `VIDEO_PROVIDER=minimax` and `MINIMAX_API_KEY` (the same key makes the cast and set
+images and the voices). There is nothing else to set up.
+
+Our own GPUs on RunPod take over once the H3 model runs in `gpu-worker/backends/h3.py`. Then follow
+`gpu-worker/README.md`:
 1. Build and push the `gpu-worker` image.
 2. Put the H3 weights on a network volume.
 3. Create a Serverless endpoint.
@@ -117,6 +121,9 @@ How the money works:
 **Scaling the app itself:** one instance handles the API, the job queue and FFmpeg editing. When editing
 backs up, add replicas. The queue is safe to share between instances. To separate the API from background
 work, run one service with `RUN_WORKER=0` and more with the start command `node dist/worker.js`.
+
+**Deploys are safe mid-film:** on shutdown the engine hands its running jobs back to the queue and the new instance
+carries on. If an instance is killed outright, its jobs are picked up again within about 3 minutes.
 
 ## 5. Launch check (10 minutes)
 

@@ -45,7 +45,8 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - **Autopilot** (`engine/src/pipeline/autopilot.ts`) moves a project through the stages. It's a queue job that
   reschedules itself, so it survives restarts and costs nothing while waiting.
 - **Every step is a job** in Postgres (`engine/src/queue.ts`, `FOR UPDATE SKIP LOCKED`). Any number of
-  engine instances can share the queue.
+  engine instances can share the queue. A running job's claim is refreshed every 30 s, so a job whose worker died
+  goes back in the queue after 3 minutes, and a shutdown (SIGTERM, i.e. a deploy) hands running jobs back at once.
 - **Money:**
   - `engine/src/billing.ts`: two credit buckets on `credit_accounts`. `plan_usd` is the monthly plan credit,
     reset at each paid invoice. `balance_usd` holds top-ups and refunds, which never expire. Plan credit is

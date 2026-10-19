@@ -40,6 +40,9 @@ value to paste into Railway in step 6. The name in `CAPITALS` is the setting's n
 2. **Billing**: add a card and buy some credit. $50 is plenty for the beta.
 3. **API keys → Create key**. Name it "backlot". Copy it.
    - Save as `ANTHROPIC_API_KEY`.
+4. **Settings → Limits**: note your monthly spend cap ($500 on the Start tier). When it's reached, Claude stops answering
+   until the 1st of the next month, so new films fail. Writing one film costs about $1–2; request a tier increase there
+   well before you get close.
 
 ## 2. MiniMax (cast and set images, voices, and the video itself)
 1. Go to **minimax.io**, open the **API platform**, and sign up.
@@ -65,7 +68,8 @@ value to paste into Railway in step 6. The name in `CAPITALS` is the setting's n
    - Save as `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`.
    - Also save `S3_BUCKET=backlot` and `STORAGE_DRIVER=s3`.
 6. **Authentication → Sign In / Providers**: Email is on. Make sure **Confirm email** is on too.
-   - Google sign-in is optional. You can skip it for the beta.
+   - Google sign-in is optional. You can skip it for the beta: the "Continue with Google" button only appears on the
+     sign-in page once Google is switched on here.
    - If you want it, you'll need a Google Cloud OAuth client; `docs/DEPLOY.md` step 1 covers it.
 7. **Authentication → URL Configuration** (fill in after step 6, once you have the Railway address):
    - **Site URL:** `https://<your-railway-address>`
