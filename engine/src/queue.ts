@@ -42,7 +42,8 @@ export async function enqueue(kind: string, payload: any, o: { projectId?: strin
 }
 
 const me = `${hostname()}:${process.pid}`;
-let running = 0;
+const mine = new Map<number, number>(); // the jobs this process is running: id → when it started them
+const MAX_RUN_MS = 90 * 60_000; // longer than any step takes (the final cut's FFmpeg limit is 60 minutes)
 let stopping = false;
 let wake: (() => void) | null = null;
 function kick() { if (wake) { const w = wake; wake = null; w(); } }
@@ -90,24 +91,31 @@ async function runOne(job: Job) {
   }
 }
 
-/** Put jobs whose worker died back in the queue. */
+/** Put jobs whose worker died back in the queue. Live workers refresh locked_at every 30 s (the heartbeat below). */
 async function recoverStale() {
   await sql`update jobs set status = 'queued', locked_at = null, locked_by = null, updated_at = now()
-    where status = 'running' and locked_at < now() - interval '20 minutes'`;
+    where status = 'running' and locked_at < now() - interval '3 minutes'`;
 }
 
 export function startWorker(concurrency = config.workerConcurrency) {
   console.log(`[worker] ${me} started, concurrency ${concurrency}`);
   let lastRecover = 0;
+  // Heartbeat: a job stays claimed while it runs here (a long final cut included), and the jobs of a worker that crashed
+  // or was killed are picked up again within minutes. A job still running after MAX_RUN_MS is hung: it goes stale too.
+  setInterval(() => {
+    const live = [...mine].filter(([, t]) => Date.now() - t < MAX_RUN_MS).map(([id]) => id);
+    if (live.length) sql`update jobs set locked_at = now() where id in ${sql(live)} and status = 'running' and locked_by = ${me}`
+      .catch((e) => console.error('[worker] heartbeat', e.message));
+  }, 30_000).unref();
   const loop = async () => {
     while (!stopping) {
       try {
         if (Date.now() - lastRecover > 60_000) { lastRecover = Date.now(); await recoverStale(); }
-        if (running >= concurrency) { await sleepOrWake(500); continue; }
+        if (mine.size >= concurrency) { await sleepOrWake(500); continue; }
         const job = await claim();
         if (!job) { await sleepOrWake(1000); continue; }
-        running++;
-        runOne(job).finally(() => { running--; kick(); });
+        mine.set(job.id, Date.now());
+        runOne(job).finally(() => { mine.delete(job.id); kick(); });
       } catch (e) {
         console.error('[worker] loop error', e);
         await sleepOrWake(3000);
@@ -115,7 +123,29 @@ export function startWorker(concurrency = config.workerConcurrency) {
     }
   };
   loop();
-  return { stop: () => { stopping = true; kick(); } };
+}
+
+/**
+ * Shutting down (a deploy or restart): stop claiming and hand this process's running jobs straight back to the queue,
+ * attempt returned, so another instance picks them up at once instead of when they go stale. Call it, then exit.
+ */
+export async function releaseRunning() {
+  stopping = true; kick();
+  if (!mine.size) return 0;
+  const rows = await sql`update jobs set status = 'queued', attempts = greatest(attempts - 1, 0), locked_at = null, locked_by = null,
+    run_after = now(), updated_at = now() where id in ${sql([...mine.keys()])} and status = 'running' and locked_by = ${me} returning id`;
+  return rows.length;
+}
+
+/** Exit cleanly on SIGTERM/SIGINT. Without a handler Node ignores SIGTERM as a container's PID 1, then gets killed. */
+export function exitOnSignals(who: string) {
+  for (const s of ['SIGINT', 'SIGTERM'] as const) process.once(s, () => {
+    const giveUp = new Promise<never>((_, no) => setTimeout(() => no(new Error('database did not answer in 5 s')), 5000).unref());
+    Promise.race([releaseRunning(), giveUp])
+      .then((n) => console.log(`[${who}] ${s}: ${n} running job(s) handed back to the queue; exiting`))
+      .catch((e) => console.error(`[${who}] ${s}: could not hand jobs back (they resume once stale)`, e))
+      .finally(() => process.exit(0));
+  });
 }
 
 function sleepOrWake(ms: number) {
