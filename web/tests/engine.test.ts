@@ -10,6 +10,7 @@ import {
   usd,
   type Me,
 } from "@/lib/engine";
+import { googleSignInEnabled } from "@/lib/supabase";
 
 describe("engine client helpers", () => {
   it("polls only while the autopilot is working", () => {
@@ -62,5 +63,29 @@ describe("plan, storage and billing helpers", () => {
       planLabel(me({ status: "cancelled", active: true, ends_at: "2026-10-26T00:00:00Z" }).plan),
     ).toMatch(/^Cancelled · ends /);
     expect(planLabel(me({ status: "expired" }).plan)).toBe("Ended");
+  });
+});
+
+describe("sign-in providers", () => {
+  const site = { url: "https://proj.supabase.co", anonKey: "anon" };
+  const answer = (status: number, body: unknown) =>
+    (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+
+  it("shows Google sign-in only when it is switched on in Supabase", async () => {
+    expect(await googleSignInEnabled(answer(200, { external: { google: true } }), site)).toBe(true);
+    expect(await googleSignInEnabled(answer(200, { external: { google: false } }), site)).toBe(
+      false,
+    );
+    expect(await googleSignInEnabled(answer(401, {}), site)).toBe(false);
+    const down = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    expect(await googleSignInEnabled(down, site)).toBe(false);
+    expect(
+      await googleSignInEnabled(answer(200, { external: { google: true } }), {
+        url: "",
+        anonKey: "",
+      }),
+    ).toBe(false); // local development: no Supabase
   });
 });

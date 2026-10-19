@@ -432,9 +432,11 @@ function FixDialog({
     },
     onError: (err: Error) => toast.error(err.message),
   });
+  // The re-shoot plus the rewrite of the shot from the note: both are charged.
   const price =
     shot && me
-      ? (me.prices.per_second[resolution] ?? me.prices.per_second["768P"] ?? 0) * shot.duration
+      ? (me.prices.per_second[resolution] ?? me.prices.per_second["768P"] ?? 0) * shot.duration +
+        me.prices.actions.revision
       : null;
   return (
     <Dialog open={!!shot} onOpenChange={(o) => !o && onClose()}>
