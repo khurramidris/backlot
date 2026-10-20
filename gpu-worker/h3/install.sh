@@ -32,7 +32,7 @@ checkout https://github.com/Kablex/ComfyUI-Ref2VA-VSA.git "$comfy/custom_nodes/C
 python "$here/harden_kablex.py" "$comfy/custom_nodes/ComfyUI-Ref2VA-VSA/nodes.py"
 
 # Everything imports, and ComfyUI loads the H3 and Kablex nodes (CPU only: the build machine has no GPU).
-python -c "import comfy_kitchen, av, transformers, huggingface_hub; print('comfy-kitchen', comfy_kitchen.__version__)"
+python -c "import comfy_kitchen, av, transformers, huggingface_hub; from importlib.metadata import version; print('comfy-kitchen', version('comfy-kitchen'))"
 log="$(cd "$comfy" && python main.py --cpu --quick-test-for-ci 2>&1)" || { echo "$log"; exit 1; }
 echo "$log" | tail -n 20
 if echo "$log" | grep -q "IMPORT FAILED"; then echo "A ComfyUI node failed to import" >&2; exit 1; fi
