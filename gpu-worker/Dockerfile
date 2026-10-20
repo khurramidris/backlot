@@ -8,8 +8,11 @@ FROM pytorch/pytorch@sha256:6e8a7a6dedf900096f90190f66f988e7e658cda4f1e6cbc7c17e
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MODEL_BACKEND=h3 MODEL_DIR=/runpod-volume/h3 COMFY_DIR=/opt/ComfyUI
-RUN apt-get update && apt-get install -y --no-install-recommends git ffmpeg ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends git ffmpeg ca-certificates python3-venv \
     && rm -rf /var/lib/apt/lists/*
+# The base image's Python is system-managed (PEP 668). Install on top of its Torch through a venv that can see it.
+RUN python3 -m venv --system-site-packages /opt/venv
+ENV VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
 COPY h3 ./h3
