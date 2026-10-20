@@ -396,6 +396,51 @@ assert.ok(biz.problems.render_errors.some((e: any) => e.code === 'sensitive_cont
 assert.ok(typeof biz.health.renders_waiting === 'number' && biz.health.storage_bytes > 0);
 log(`  ✓ revenue $${biz.money.revenue_usd}, ${biz.customers.paying} paying, ${biz.usage.films} films and ${biz.usage.clips} clips, ${biz.usage.renders_ok} renders; admins only`);
 
+log('\n10e. Outages and restarts');
+// The video service is down: nothing can be filmed, so the film fails and says so (no film of slates), at no video cost.
+const { project: outage } = await api(E, 'POST', '/v1/create', { prompt: 'A ferry captain finds a stowaway who knows her future.', format: 'microdrama' });
+await waitStage(E, outage.id, 'ready');
+const beforeOutage = await balance(E);
+process.env.MOCK_VIDEO_DOWN = '1';
+await api(E, 'POST', `/v1/projects/${outage.id}/produce`, {});
+let od: any;
+for (let i = 0; i < 300 && (od = await api(E, 'GET', `/v1/projects/${outage.id}`)).project.stage !== 'failed'; i++) await new Promise((r) => setTimeout(r, 1000));
+assert.equal(od.project.stage, 'failed'); assert.match(od.project.stage_error, /None of the shots could be filmed/);
+assert.equal(od.latest_cuts.length, 0, 'no film of slates');
+near(await balance(E), beforeOutage, 'every failed render refunded');
+// It's back: Try again films every shot, charged once.
+delete process.env.MOCK_VIDEO_DOWN;
+assert.equal((await api(E, 'POST', `/v1/projects/${outage.id}/resume`, {})).stage, 'rendering');
+od = await waitStage(E, outage.id, 'done');
+assert.equal(od.latest_cuts[0].kind, 'final', 'every shot filmed on the second try');
+const [{ secs: outageSecs }] = await sql`select coalesce(sum(duration), 0)::int secs from shots where project_id = ${outage.id}`;
+near(await balance(E), beforeOutage - outageSecs * 0.1, 'charged once, for the shots filmed');
+log(`  ✓ an outage fails the film clearly with every render refunded; Try again films all ${outageSecs} s`);
+
+// A worker that dies mid-job (a deploy, a crash): its jobs go back in the queue within minutes. One that has used every
+// attempt fails instead, and its failure hook refunds what it held. A job this process is still running keeps its lease.
+const { recoverStale, heartbeat, register, workerId } = await import('../src/queue.js');
+register('test.noop', async () => ({ ok: true }));
+const [shotE] = await sql`select id from shots where project_id = ${outage.id} order by idx limit 1`;
+const beforeDead = await balance(E);
+await sql`update credit_accounts set plan_usd = plan_usd - 0.5 where owner_id = ${E}`; // the hold of a render in flight
+const [tk] = await sql`insert into takes (project_id, shot_id, n, resolution, status, hold_usd, provider, provider_task_id, submitted_at)
+  values (${outage.id}, ${shotE.id}, 99, '768P', 'submitted', 0.5, 'minimax', 'gone', now()) returning id`;
+const job = (kind: string, payload: any, attempts: number, by: string) => sql`insert into jobs (project_id, kind, payload, status, attempts, max_attempts, locked_at, locked_by)
+  values (${outage.id}, ${kind}, ${sql.json(payload)}, 'running', ${attempts}, ${kind === 'take.poll' ? 8 : 3}, now() - interval '10 minutes', ${by}) returning id`;
+const [[spent], [crashed], [mine]] = [await job('take.poll', { takeId: tk.id }, 8, 'gone:1'), await job('test.noop', {}, 1, 'gone:1'),
+  await job('test.noop', {}, 1, workerId)];
+await heartbeat(); await recoverStale();
+const jobStatus = async (id: any) => (await sql`select status from jobs where id = ${id}`)[0].status;
+assert.equal(await jobStatus(spent.id), 'failed', 'out of attempts: failed, not retried forever');
+assert.equal((await sql`select status from takes where id = ${tk.id}`)[0].status, 'failed');
+near(await balance(E), beforeDead, 'the failure hook gave the hold back');
+for (let i = 0; i < 50 && (await jobStatus(crashed.id)) !== 'done'; i++) await new Promise((r) => setTimeout(r, 200));
+assert.equal(await jobStatus(crashed.id), 'done', 'requeued and run again');
+assert.equal(await jobStatus(mine.id), 'running', 'still leased by its live worker');
+await sql`update jobs set status = 'done' where id = ${mine.id}`;
+log('  ✓ jobs of a dead worker are retried, or failed and refunded once out of attempts; live jobs keep their lease');
+
 log('\n11. Cancel, then expiry');
 await subscription('subscription_cancelled', A, 501, 'cancelled', { ends_at: future(10) });
 m = await me(A);

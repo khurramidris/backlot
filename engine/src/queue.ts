@@ -41,7 +41,8 @@ export async function enqueue(kind: string, payload: any, o: { projectId?: strin
   return Number(row.id);
 }
 
-const me = `${hostname()}:${process.pid}`;
+/** This process as jobs.locked_by names it. Unique per start: a restarted container keeps its hostname and pid. */
+export const workerId = `${hostname()}:${process.pid}:${Date.now().toString(36)}`;
 let running = 0;
 let stopping = false;
 let wake: (() => void) | null = null;
@@ -49,7 +50,7 @@ function kick() { if (wake) { const w = wake; wake = null; w(); } }
 
 async function claim(): Promise<Job | null> {
   const [j] = await sql`
-    update jobs set status = 'running', locked_at = now(), locked_by = ${me}, attempts = attempts + 1, updated_at = now()
+    update jobs set status = 'running', locked_at = now(), locked_by = ${workerId}, attempts = attempts + 1, updated_at = now()
     where id = (
       select id from jobs where status = 'queued' and run_after <= now()
       order by run_after, id for update skip locked limit 1)
@@ -90,15 +91,32 @@ async function runOne(job: Job) {
   }
 }
 
-/** Put jobs whose worker died back in the queue. */
-async function recoverStale() {
-  await sql`update jobs set status = 'queued', locked_at = null, locked_by = null, updated_at = now()
-    where status = 'running' and locked_at < now() - interval '20 minutes'`;
+/** Keep the jobs this process is running leased, so a long one (a Claude turn can take minutes) never goes to a second worker. */
+export async function heartbeat() {
+  await sql`update jobs set locked_at = now() where status = 'running' and locked_by = ${workerId}`;
+}
+
+/**
+ * Put jobs whose worker died (a deploy, a crash: no heartbeat for 3 minutes) back in the queue. A job that has used every
+ * attempt fails instead, with its failure hook, so one that keeps killing the process can't loop forever.
+ */
+export async function recoverStale() {
+  const dead = await sql`update jobs set status = case when attempts >= max_attempts then 'failed' else 'queued' end,
+      error = case when attempts >= max_attempts then 'Interrupted too many times: the server restarted while this step was running.' else error end,
+      locked_at = null, locked_by = null, updated_at = now()
+    where status = 'running' and locked_at < now() - interval '3 minutes'
+    returning id, project_id, kind, payload, attempts, max_attempts, status`;
+  for (const j of dead) {
+    console.error(`[job ${j.id} ${j.kind}] worker stopped mid-job: ${j.status === 'failed' ? 'failed' : 'requeued'}`);
+    const f = j.status === 'failed' && handlers.get(j.kind + ':failed');
+    if (f) await f(j.payload, { job: { ...j, id: Number(j.id) } as Job, progress: async () => {} }).catch((x) => console.error(`[job ${j.id}] failure hook`, x));
+  }
 }
 
 export function startWorker(concurrency = config.workerConcurrency) {
-  console.log(`[worker] ${me} started, concurrency ${concurrency}`);
+  console.log(`[worker] ${workerId} started, concurrency ${concurrency}`);
   let lastRecover = 0;
+  const beat = setInterval(() => heartbeat().catch((e) => console.error('[worker] heartbeat', e.message)), 30_000).unref();
   const loop = async () => {
     while (!stopping) {
       try {
@@ -115,7 +133,14 @@ export function startWorker(concurrency = config.workerConcurrency) {
     }
   };
   loop();
-  return { stop: () => { stopping = true; kick(); } };
+  return {
+    /** Stop taking jobs; resolves when the running ones finish, or after graceMs (the next worker recovers the rest). */
+    stop: async (graceMs = 0) => {
+      stopping = true; kick();
+      for (const t0 = Date.now(); running > 0 && Date.now() - t0 < graceMs;) await new Promise((r) => setTimeout(r, 200));
+      clearInterval(beat);
+    },
+  };
 }
 
 function sleepOrWake(ms: number) {

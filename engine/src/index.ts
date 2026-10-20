@@ -13,5 +13,13 @@ await initMonitoring();
 if (config.autoMigrate) await migrate();
 registerJobs();
 await startCapacityController();
-if (config.runWorker) startWorker();
-serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (i) => console.log(`[api] listening on :${i.port}${config.mock ? ' (MOCK PROVIDERS)' : ''}`));
+const worker = config.runWorker ? startWorker() : null;
+const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (i) => console.log(`[api] listening on :${i.port}${config.mock ? ' (MOCK PROVIDERS)' : ''}`));
+// A deploy stops this process: take no new work, give running jobs a moment to finish. Anything still running is
+// picked up again by the next instance within a few minutes.
+for (const s of ['SIGINT', 'SIGTERM'] as const) process.once(s, async () => {
+  console.log(`[api] ${s}: stopping`);
+  server.close();
+  await worker?.stop(20_000);
+  process.exit(0);
+});

@@ -9,4 +9,4 @@ if (config.autoMigrate) await migrate();
 registerJobs();
 await startCapacityController();
 const w = startWorker();
-for (const s of ['SIGINT', 'SIGTERM'] as const) process.on(s, () => { w.stop(); setTimeout(() => process.exit(0), 2000); });
+for (const s of ['SIGINT', 'SIGTERM'] as const) process.once(s, async () => { await w.stop(20_000); process.exit(0); });

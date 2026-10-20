@@ -191,6 +191,7 @@ export const mockMinimax = {
     const { validateH3 } = await import('../pipeline/compiler.js');
     validateH3(body);
     const id = String(Date.now()) + Math.floor(Math.random() * 1000);
+    if (process.env.MOCK_VIDEO_DOWN === '1') { tasks.set(id, { status: 'failed', error: 'mock video service is down' }); return id; } // tests: an outage
     tasks.set(id, { status: 'queued' });
     const text: string = body.content.find((c: any) => c.type === 'text').text;
     const [w, h] = body.ratio === '9:16' ? [720, 1280] : body.ratio === '1:1' ? [960, 960] : body.ratio === '3:4' ? [720, 960] : [1280, 720];

@@ -109,7 +109,7 @@ function AuthPage() {
   ];
   const subtitle = {
     signin: "Continue to your videos.",
-    signup: "Start producing AI drama episodes.",
+    signup: "Start making films and clips.",
     forgot: "We'll email you a link to choose a new one.",
   }[mode];
 

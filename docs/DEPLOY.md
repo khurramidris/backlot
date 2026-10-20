@@ -114,6 +114,9 @@ How the money works:
    and `CORS_ORIGINS`.
 4. Deploy. `https://<your-domain>/health` should return `{"ok":true,"mock":false}`.
 
+**Deploying while customers work:** a deploy gives running steps 20 seconds to finish. Anything cut off picks up
+again within about 3 minutes on the new version, so deploying mid-film delays it but loses nothing.
+
 **Scaling the app itself:** one instance handles the API, the job queue and FFmpeg editing. When editing
 backs up, add replicas. The queue is safe to share between instances. To separate the API from background
 work, run one service with `RUN_WORKER=0` and more with the start command `node dist/worker.js`.

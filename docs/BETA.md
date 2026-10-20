@@ -145,8 +145,10 @@ Supabase's built-in email only sends a few messages an hour, so testers would ge
    approval" with the script, cast and price.
 3. Press **Make my video** and wait for "Finished". Play it and download it.
 4. Try **Fix this shot** on one shot, **Buy** a top-up pack (test card again), and **Forgot password**.
-5. **Look at the costs:** check the Anthropic console, the MiniMax balance and Supabase storage before and after
-   one film. Tell me the numbers and I'll check the pricing still makes money.
+5. **Look at the costs:** open **Admin**. "Where the money goes" shows what that film cost you in writing,
+   pictures, voices and video, next to what you charged. Check the Anthropic console and the MiniMax balance
+   too, since the dashboard's figures are estimates from list prices. Tell me the numbers and I'll check the
+   pricing still makes money.
 
 ## 10. Legal details and a domain
 1. Send me:
@@ -176,9 +178,12 @@ Send each tester:
   charged during the beta."
 - where to send feedback (an email address or a WhatsApp group)
 
-Start with 10–20 people. The **Admin** page (sidebar, admins only) shows the week at a glance:
-- paying customers, films finished and failed, money in and AI costs out
-- recent failures, and every customer
+Start with 10–20 people. The **Admin** page (sidebar, admins only) is the company dashboard, for the last 7 days,
+30 days, 90 days or 12 months:
+- money in, costs out (AI, GPU, your monthly bills, payment fees), profit and monthly recurring revenue
+- where the money goes, line by line, and what a second of video costs you against what you charge
+- what customers made, what failed or was refused, and whether anything is stuck right now
+- customers: new, paying, cancelling, payment problems, and the top spenders
 
 Click a customer to see their films, what each cost you against what they paid, and their credit history. You
 can also **give or take back credit** there with a note, for example if a film came out badly.

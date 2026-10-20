@@ -1,13 +1,15 @@
 # Backlot: notes for Claude
 
-Backlot is a startup product: prompt → finished film (microdrama, short film, web series, YouTube story).
+Backlot is a startup product: prompt → finished film (microdrama, short film, web series, YouTube story), plus
+quick clips (text, image, characters & products, or a video to remix → 5–15 seconds).
 The founder works with Claude as CTO and the whole engineering team. Ship-oriented: small, tested, pushed.
 
 ## Current state
-The product is feature-complete for launch: prompt → film, Basic subscription ($20/month through Lemon Squeezy,
-monthly plan credit plus top-ups), 50 GB storage quota, billing and account pages, password reset, and
-Terms/Privacy drafts. What's left is setting up accounts and inputs only the founder can provide (see "Not done
-yet").
+The product is feature-complete for launch: prompt → film, quick clips, Basic subscription ($20/month through Lemon
+Squeezy, monthly plan credit plus top-ups), 50 GB storage quota, content checks, billing and account pages, the
+company dashboard on `/admin`, password reset, and Terms/Privacy drafts. The launch audit and go/no-go list are in
+`docs/LAUNCH.md`. What's left is setting up accounts and inputs only the founder can provide (see "Not done yet").
+Launch good enough, then fix what customers actually hit: don't polish ahead of real use.
 
 ## Working rules
 - **GitHub `main` is the source of truth.** Commit and push after every meaningful, green step: the founder
@@ -20,6 +22,8 @@ yet").
 ## Layout
 - `engine/`: Node 22 + Hono + Postgres. Entry: `src/index.ts`; routes: `src/server.ts`; pipeline:
   `src/pipeline/*`; money: `src/billing.ts` (credit buckets, plan gate, storage quota) and `src/lemonsqueezy.ts` (payments); RunPod: `src/providers/runpod.ts`, `src/capacity.ts`.
+  Quick clips: `src/pipeline/clips.ts`; content checks: `src/moderation.ts`; the company dashboard: `src/business.ts`
+  (web: `src/components/admin/CompanyDashboard.tsx`).
   Migrations in `db/migrations` (applied on boot, append-only). The story engine (develop → screenplay → script
   doctor → breakdown → direction → shots) is described in `docs/ARCHITECTURE.md`. Its prompts are in
   `src/pipeline/prompts.ts` and its answer shapes in `src/pipeline/schemas.ts`. Judge prompt changes with

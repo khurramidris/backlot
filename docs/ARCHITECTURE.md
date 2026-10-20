@@ -61,7 +61,9 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - **Autopilot** (`engine/src/pipeline/autopilot.ts`) moves a project through the stages. It's a queue job that
   reschedules itself, so it survives restarts and costs nothing while waiting.
 - **Every step is a job** in Postgres (`engine/src/queue.ts`, `FOR UPDATE SKIP LOCKED`). Any number of
-  engine instances can share the queue.
+  engine instances can share the queue. A worker renews the lease on its running jobs every 30 seconds. A job whose
+  worker died (a deploy, a crash) goes back in the queue after 3 minutes, or fails, running its refund hook, once
+  it has used every attempt. On SIGTERM a process takes no new jobs and gives running ones 20 seconds to finish.
 - **Money:**
   - `engine/src/billing.ts`: two credit buckets on `credit_accounts`. `plan_usd` is the monthly plan credit,
     reset at each paid invoice. `balance_usd` holds top-ups and refunds, which never expire. Plan credit is
@@ -102,7 +104,8 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - Structured outputs make the answer's shape reliable; code still repairs its content. Never ask the model to
   write out its reasoning in a field (it can trigger refusals); thinking is adaptive and stays internal.
 - Anything that reaches an FFmpeg filter graph is validated first (`parseCutOptions`).
-- Customer uploads are decoded only through FFmpeg into a fresh JPEG, MP4 or MP3 before anything else reads them
-  or a model sees them.
+- Customer uploads are only ever opened by FFmpeg as local files (its file protocol won't follow a disguised playlist
+  to the network) and never reach a shell. Quick-clip inputs and voices are re-encoded into fresh JPEG, MP4 and MP3
+  files before a model sees them.
 - What a customer writes or uploads for a video passes the content check before it reaches a video model, unless
   Claude rewrote it first.

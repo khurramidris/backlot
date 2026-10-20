@@ -132,6 +132,12 @@ async function rendering(p: any, st: any): Promise<any> {
   const busy = shots.filter((s: any) => s.status === 'queued' || s.status === 'rendering').length;
   const done = shots.filter((s: any) => s.status === 'approved').length;
   if (busy) return again(10, `Rendered ${done} of ${shots.length} shots`);
+  if (!done) { // nothing could be filmed (the video service is down, or every shot was refused): don't deliver a film of slates
+    const refused = shots.every((s: any) => s.status === 'blocked');
+    throw new PermanentError(refused
+      ? 'The content check refused every shot of this film, so nothing was filmed. You weren’t charged for video.'
+      : 'None of the shots could be filmed just now. You weren’t charged for video. Press Try again to film them again.', 'render_failed');
+  }
   await setStage(p.id, 'assembling', { cuts: null });
   return again(0, 'Editing');
 }

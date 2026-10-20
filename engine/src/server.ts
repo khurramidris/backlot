@@ -262,7 +262,7 @@ v1.post('/projects/:id/resume', async (c) => {
   const st = p.autopilot || {};
   const stage = st.failed_stage || 'writing';
   await sql.begin(async (tx) => {
-    const patch: any = stage === 'assembling' ? { cuts: null } : {};
+    const patch: any = stage === 'assembling' ? { cuts: null } : stage === 'rendering' ? { render_queued: false, retried_shots: [] } : {}; // film the failed shots again
     if (stage === 'writing' && st.writing) patch.writing = { ...st.writing, tries: 0, problem: null }; // a fresh try at the failed writing step
     if (st.setup_refunded) { patch.setup_fee = await debit(tx, p.owner_id, Number(st.setup_fee) || config.credits.setupFeeUsd, 'setup_fee', p.id); patch.setup_refunded = false; }
     await tx`update projects set stage = ${stage}, stage_error = null, autopilot = autopilot || ${tx.json(patch)}, updated_at = now() where id = ${p.id}`;
