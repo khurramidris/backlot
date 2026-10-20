@@ -4,7 +4,7 @@
 //   instead of text we have to scrape (code still repairs the content: dialogue, timing, coverage).
 // - Adaptive thinking with an explicit effort per step (creative work high, bulk planning medium).
 // - The stable system prompt is cached, so repeated calls in one project (every scene's plan) pay
-//   ~10% for it after the first.
+//   a fraction of the price for it after the first.
 // - A refusal is handled as a clear, permanent error; server-side fallbacks retry declined requests on
 //   Anthropic's recommended model first.
 
@@ -65,7 +65,7 @@ export async function claudeJSON<T = any>(call: ClaudeCall<T>): Promise<ClaudeRe
   const params: Anthropic.Beta.MessageCreateParamsStreaming = {
     model,
     max_tokens: call.maxTokens ?? 32000,
-    // Cached: identical across every call of this step, so repeat calls read it at a tenth of the price.
+    // Cached: identical across every call of this step, so repeat calls read it at a fraction of the price.
     system: [{ type: 'text', text: call.system, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content }],
     thinking: { type: 'adaptive' },
@@ -105,15 +105,17 @@ export async function claudeJSON<T = any>(call: ClaudeCall<T>): Promise<ClaudeRe
   };
 }
 
-// List prices (USD per million tokens), for spend tracking and margins. Thinking is billed as output.
-const PRICES: [RegExp, number, number][] = [
-  [/fable|mythos/, 10, 50], [/opus-5-5/, 4, 20], [/opus/, 5, 25], [/sonnet-4/, 3, 15], [/sonnet/, 2, 10], [/haiku/, 1, 5],
+// List prices (USD per million tokens: input, output, cache read), for spend tracking and margins. Thinking is
+// billed as output. Cache reads are priced per model (Opus 5.5 reads are 5% of input, not the older 10%).
+const PRICES: [RegExp, number, number, number][] = [
+  [/fable|mythos/, 10, 50, 0.25], [/opus-5-5/, 4, 20, 0.2], [/opus/, 5, 25, 0.5], [/sonnet-4/, 3, 15, 0.3], [/sonnet/, 2, 10, 0.2],
+  [/haiku-5/, 0.1, 0.5, 0.01], [/haiku/, 1, 5, 0.1],
 ];
 export function llmCost(model: string, u: ClaudeUsage) {
   const p = PRICES.find(([rx]) => rx.test(model));
   if (!p) return 0;
-  const [, inp, out] = p;
-  // Cache reads cost 10% of input, cache writes 125%.
-  return (u.input * inp + (u.cacheRead || 0) * inp * 0.1 + (u.cacheWrite || 0) * inp * 1.25 + u.output * out) / 1e6;
+  const [, inp, out, read] = p;
+  // Cache writes (5-minute) cost 125% of input.
+  return (u.input * inp + (u.cacheRead || 0) * read + (u.cacheWrite || 0) * inp * 1.25 + u.output * out) / 1e6;
 }
 export const llmUnits = (u: ClaudeUsage) => u.input + (u.cacheRead || 0) + (u.cacheWrite || 0) + u.output;

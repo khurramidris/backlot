@@ -125,7 +125,9 @@ test('structured-output schemas use only what the API supports', () => {
 test('LLM cost counts cache reads and writes', () => {
   const plain = llmCost('claude-opus-5-5', { input: 1_000_000, output: 0 });
   assert.equal(plain, 4);
-  assert.equal(llmCost('claude-opus-5-5', { input: 0, output: 0, cacheRead: 1_000_000 }), 0.4);
+  assert.equal(llmCost('claude-opus-5-5', { input: 0, output: 0, cacheRead: 1_000_000 }), 0.2);
+  assert.equal(llmCost('claude-opus-5-5', { input: 0, output: 0, cacheWrite: 1_000_000 }), 5);
+  assert.equal(llmCost('claude-haiku-5-5', { input: 1_000_000, output: 1_000_000 }), 0.6);
   assert.equal(llmCost('claude-opus-5-5', { input: 0, output: 1_000_000 }), 20);
   assert.equal(llmCost('claude-sonnet-5-5', { input: 0, output: 1_000_000 }), 10);
 });

@@ -11,7 +11,8 @@ import { splitDebit, isActiveStatus } from '../src/billing.js';
 import { verifyLemonSignature } from '../src/lemonsqueezy.js';
 import { decideWorkersMin } from '../src/capacity.js';
 import { hit } from '../src/ratelimit.js';
-import { mm } from '../src/pipeline/render.js';
+import { mm, resolutionsFor } from '../src/pipeline/render.js';
+import { clipPrompt, normalizeRefs, checkClipForm } from '../src/pipeline/clips.js';
 import * as runpodProvider from '../src/providers/runpod.js';
 import { createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -200,4 +201,36 @@ test('text in the picture: drawtext on servers, an ASS file where the FFmpeg bui
     Object.assign(config.ffmpeg, keep);
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('quick clips: the customer’s "image 2" and "the voice" become the wording H3 requests use', () => {
+  assert.equal(normalizeRefs('The woman in image 1 hands Picture 2 to the man in photo #3'),
+    'The woman in reference image 1 hands reference image 2 to the man in reference image 3');
+  assert.equal(normalizeRefs('Swap the man in video 1 for the woman in reference image 1, voice 1 speaks'),
+    'Swap the man in reference video 1 for the woman in reference image 1, reference audio 1 speaks');
+  assert.equal(normalizeRefs('A cinematic video of rain'), 'A cinematic video of rain', 'plain words are left alone');
+  const p = clipPrompt({ prompt: 'Maya in image 1 shows off the sneaker in image 2.', inputs: [
+    { role: 'reference_image', key: 'a', label: 'Maya' }, { role: 'reference_image', key: 'b' }, { role: 'reference_audio', key: 'c', label: 'Maya' }] });
+  assert.equal(p, 'References: reference image 1 is Maya.\nMaya speaks with the voice in reference audio 1.\nMaya in reference image 1 shows off the sneaker in reference image 2.');
+  assert.match(clipPrompt({ prompt: 'Make it night', inputs: [{ role: 'reference_video', key: 'v' }] }), /^Reference video 1 is the source clip to remix\./);
+});
+
+test('quick clips: each mode takes exactly the uploads it needs, and uploads need consent', () => {
+  const file = { name: 'x', type: 'image/png', data: Buffer.alloc(10) };
+  const ok = { mode: 'text', prompt: 'A red kite over the sea', seconds: 5, aspect: '9:16', consent: false, images: [], labels: [] };
+  checkClipForm(ok);
+  const err = (patch: any) => { try { checkClipForm({ ...ok, ...patch }); return ''; } catch (e: any) { return e.code; } };
+  assert.equal(err({ images: [file] }), 'bad_input', 'text to video takes no uploads');
+  assert.equal(err({ mode: 'image' }), 'bad_input', 'image to video needs a picture');
+  assert.equal(err({ mode: 'image', images: [file] }), 'consent_required');
+  assert.equal(err({ mode: 'image', images: [file], consent: true }), '');
+  assert.equal(err({ mode: 'reference', images: Array(10).fill(file), consent: true }), 'bad_input', 'at most nine pictures');
+  assert.equal(err({ mode: 'remix', images: [file], consent: true }), 'bad_input', 'a remix needs a video');
+  assert.equal(err({ seconds: 4 }), 'bad_input'); assert.equal(err({ seconds: 16 }), 'bad_input'); assert.equal(err({ seconds: 7.5 }), 'bad_input');
+  assert.equal(err({ aspect: '4:3' }), 'bad_input'); assert.equal(err({ prompt: 'hi' }), 'bad_input'); assert.equal(err({ mode: 'gif' }), 'bad_input');
+});
+
+test('our own GPUs are never sold 2K', () => {
+  assert.deepEqual(resolutionsFor('runpod'), ['768P']);
+  assert.deepEqual(resolutionsFor('minimax'), ['768P', '2K']);
 });

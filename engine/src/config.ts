@@ -88,6 +88,28 @@ export const config = {
 
   // Which service renders video: MiniMax's API, or our own H3 deployment on RunPod Serverless.
   videoProvider: (env.VIDEO_PROVIDER || 'minimax') as 'minimax' | 'runpod',
+  // Pass a scene's previous clip to the next shot as a reference video (continuity). auto: on with MiniMax, off on our
+  // own GPUs, where a reference clip roughly doubles the work of every shot.
+  chainClips: (env.CHAIN_CLIPS || 'auto') as 'auto' | '1' | '0',
+
+  // Quick clips: text, an image, references or a video to remix → one clip, charged per second like film shots.
+  clips: {
+    minSeconds: num(env.CLIP_MIN_SECONDS, 5),
+    maxSeconds: 15, // one H3 generation
+    // Image-to-video can run on another provider than the rest (e.g. minimax while it's in beta on our own GPUs).
+    imageProvider: (env.CLIP_IMAGE_PROVIDER || '') as '' | 'minimax' | 'runpod',
+  },
+
+  // Customer prompts and uploads are checked before they reach a video model (our own H3 has no filter of its own).
+  moderation: bool(env.MODERATION, true),
+
+  // The company dashboard: monthly fixed costs ("Railway:20,Supabase:25") and the payment processor's fee per payment.
+  business: {
+    fixedCosts: (env.FIXED_COSTS_MONTHLY || '').split(',').map((x) => x.split(':').map((s) => s.trim())).filter(([n, v]) => n && +v > 0)
+      .map(([name, usd]) => ({ name, usd: +usd })),
+    paymentFeePct: num(env.PAYMENT_FEE_PCT, 5),
+    paymentFeeUsd: num(env.PAYMENT_FEE_USD, 0.5),
+  },
 
   runpod: {
     apiKey: env.RUNPOD_API_KEY || '',

@@ -14,7 +14,8 @@ import { requireUser } from './auth.js';
 import { enqueue, PermanentError } from './queue.js';
 import { createProject } from './pipeline/importer.js';
 import { queueAllAssets, approveAsset, uploadAsset } from './pipeline/assets.js';
-import { queueRender, refreshEpisodeStatus, mm } from './pipeline/render.js';
+import { queueRender, refreshEpisodeStatus, mm, resolutionsFor } from './pipeline/render.js';
+import { createClip, retakeClip, type Upload } from './pipeline/clips.js';
 import { requestCut } from './pipeline/assemble.js';
 import { costOf } from './pipeline/compiler.js';
 import { projectSpend } from './usage.js';
@@ -37,8 +38,9 @@ const tooBig = (c: Context) => c.json({ error: { code: 'too_large', message: 'Re
 const jsonLimit = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooBig });
 const fileLimit = bodyLimit({ maxSize: 30 * 1024 * 1024, onError: tooBig });
 const uploadLimit = bodyLimit({ maxSize: 500 * 1024 * 1024, onError: tooBig }); // rendered clips PUT by the GPU worker
+const clipLimit = bodyLimit({ maxSize: 150 * 1024 * 1024, onError: tooBig }); // a quick clip's pictures, video and voice
 app.use('*', (c, next) => (c.req.method === 'PUT' && c.req.path.startsWith('/files/') ? uploadLimit
-  : /multipart\/form-data/i.test(c.req.header('content-type') || '') ? fileLimit : jsonLimit)(c, next));
+  : /multipart\/form-data/i.test(c.req.header('content-type') || '') ? (c.req.path === '/v1/clips' ? clipLimit : fileLimit) : jsonLimit)(c, next));
 
 app.use('*', cors({ origin: config.corsOrigins.includes('*') ? '*' : config.corsOrigins, allowHeaders: ['authorization', 'content-type', 'x-engine-key', 'x-user-id'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] }));
 
@@ -101,6 +103,8 @@ v1.use('*', requireUser);
 v1.use('*', limit('api', 600, 60));
 v1.post('/create', limit('create', 30, 3600));
 v1.post('/projects', limit('create', 30, 3600));
+v1.post('/clips', limit('create', 30, 3600));
+v1.post('/clips/:id/retake', limit('render', 200, 3600));
 v1.use('/billing/*', limit('billing', 30, 3600));
 v1.post('/shots/:id/retake', limit('render', 200, 3600));
 v1.post('/shots/:id/render', limit('render', 200, 3600));
@@ -120,16 +124,17 @@ async function own(c: Context<Env>, table: 'episodes' | 'assets' | 'shots' | 'ta
 }
 const body = async (c: Context) => { try { return await c.req.json(); } catch { return {}; } };
 const UUID = /^[0-9a-f-]{36}$/i;
-/** Optional render resolution from a request body; only what H3 renders is accepted. */
+/** Optional render resolution from a request body; only what the video provider renders is accepted. */
 const resolutionOf = (v: any): string | undefined => {
   if (v === undefined || v === null || v === '') return undefined;
-  if (!['768P', '2K'].includes(v)) throw new PermanentError('resolution must be 768P or 2K');
+  const ok = resolutionsFor(config.videoProvider);
+  if (!ok.includes(v)) throw new PermanentError(`resolution must be ${ok.join(' or ')}`);
   return v;
 };
 v1.use('/*', async (c, next) => { // reject malformed ids early
   const seg = c.req.path.split('/'); // ['', 'v1', resource, id, ...]
   const id = seg[3];
-  if (id && /^(projects|episodes|assets|shots|takes|cuts|scenes)$/.test(seg[2]) && !UUID.test(id)) return c.json({ error: { code: 'not_found', message: 'not found' } }, 404);
+  if (id && /^(projects|episodes|assets|shots|takes|cuts|scenes|clips)$/.test(seg[2]) && !UUID.test(id)) return c.json({ error: { code: 'not_found', message: 'not found' } }, 404);
   if (id && seg[2] === 'jobs' && !/^\d+$/.test(id)) return c.json({ error: { code: 'not_found', message: 'not found' } }, 404);
   await next();
 });
@@ -154,7 +159,8 @@ v1.post('/projects', async (c) => {
 v1.get('/projects', async (c) => {
   const rows = await sql`select p.id, p.title, p.format, p.aspect, p.status, p.mode, p.stage, p.stage_error, p.updated_at, p.created_at,
     (select count(*)::int from episodes e where e.project_id = p.id) episodes,
-    (select thumb_key from cuts where project_id = p.id and status = 'done' order by created_at desc limit 1) thumb_key
+    coalesce((select thumb_key from cuts where project_id = p.id and status = 'done' order by created_at desc limit 1),
+      (select thumb_key from takes where project_id = p.id and status = 'succeeded' order by finished_at desc limit 1)) thumb_key
     from projects p where owner_id = ${c.get('uid')} order by updated_at desc limit 200`;
   return c.json({ projects: await Promise.all(rows.map(async ({ thumb_key, ...r }: any) => ({ ...r, thumb_url: await url(thumb_key) }))) });
 });
@@ -172,10 +178,49 @@ v1.get('/projects/:id', async (c) => {
     from cuts where project_id = ${p.id} order by episode_id, created_at desc`;
   const [{ todo }] = await sql`select coalesce(sum(duration) filter (where status <> 'approved'), 0)::int todo from shots where project_id = ${p.id}`;
   return c.json(plain({
-    project: { ...p, source: undefined }, episodes, asset_counts: assets, jobs, spend: await projectSpend(p.id),
+    project: { ...p, source: undefined }, episodes, asset_counts: assets, jobs, spend: await projectSpend(p.id), clip: await clipView(p),
     latest_cuts: await Promise.all(cuts.map(async ({ file_key, srt_key, thumb_key, ...r }: any) => ({ ...r, url: await url(file_key), srt_url: await url(srt_key), thumb_url: await url(thumb_key) }))),
     render_price_usd: sellPrice(p.resolution, todo),
   }));
+});
+
+/** A clip's inputs and every version made so far (newest first), for the clip page. */
+async function clipView(p: any) {
+  if (p.mode !== 'clip') return null;
+  const [shot] = await sql`select id, duration, status from shots where project_id = ${p.id} order by idx limit 1`;
+  if (!shot) return null;
+  const takes = await sql`select * from takes where shot_id = ${shot.id} order by n desc`;
+  const b = p.brief || {};
+  return {
+    mode: b.mode, prompt: b.prompt, seconds: shot.duration, aspect: p.aspect, shot_id: shot.id, price_usd: sellPrice('768P', shot.duration),
+    inputs: await Promise.all((b.inputs || []).map(async (i: any) => ({ role: i.role, label: i.label || null, url: await url(i.key) }))),
+    takes: await Promise.all(takes.map(takeView)),
+  };
+}
+
+// ───────── quick clips: text, an image, references or a video to remix → one clip ─────────
+v1.post('/clips', async (c) => {
+  const uid = c.get('uid');
+  await ensureAccount(uid, c.get('email'));
+  await requirePlan(uid);
+  const form = await c.req.parseBody({ all: true });
+  const all = (k: string) => [form[k]].flat().filter((x) => x !== undefined);
+  const str = (k: string) => { const v = all(k)[0]; return typeof v === 'string' ? v : ''; };
+  const files = async (k: string): Promise<Upload[]> => Promise.all(all(k).filter((f): f is File => typeof f !== 'string')
+    .map(async (f) => ({ name: f.name, type: f.type, data: Buffer.from(await f.arrayBuffer()) })));
+  const [images, video, audio] = await Promise.all([files('images'), files('video'), files('audio')]);
+  const p = await createClip(uid, {
+    mode: str('mode'), prompt: str('prompt'), seconds: Number(str('seconds')), aspect: str('aspect'), consent: str('consent') === 'true',
+    images, labels: all('labels').map((x) => (typeof x === 'string' ? x : '')), video: video[0], audio: audio[0], audioLabel: str('audio_label'),
+  });
+  return c.json({ project: plain({ ...p, source: undefined }) }, 201);
+});
+/** Another version of a clip; optionally a new prompt or length. Charged like the first. */
+v1.post('/clips/:id/retake', async (c) => {
+  const p = await ownProject(c, c.req.param('id'));
+  await requirePlan(c.get('uid'));
+  const b = await body(c);
+  return c.json(await retakeClip(p, { prompt: b.prompt, seconds: b.seconds }), 202);
 });
 
 // ───────── vibe: prompt → finished video ─────────
@@ -229,7 +274,7 @@ v1.patch('/projects/:id', async (c) => {
   const b = await body(c);
   const ratio = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
   if (b.aspect && !ratio.includes(b.aspect)) throw new PermanentError('aspect must be one of ' + ratio.join(', '));
-  if (b.resolution && !['768P', '2K'].includes(b.resolution)) throw new PermanentError('resolution must be 768P or 2K');
+  if (b.resolution) resolutionOf(b.resolution);
   const [r] = await sql`update projects set title = ${b.title ?? p.title}, aspect = ${b.aspect ?? p.aspect}, resolution = ${b.resolution ?? p.resolution},
     language = ${b.language ?? p.language}, style = ${sql.json(b.style ? { ...p.style, ...b.style } : p.style)},
     settings = ${sql.json(b.settings ? { ...p.settings, ...b.settings } : p.settings)}, updated_at = now() where id = ${p.id} returning *`;
@@ -512,6 +557,7 @@ v1.get('/me', async (c) => {
     plan: { ...(await planOf(uid)), name: config.plan.name, price_usd: config.plan.priceUsd, credits_usd: config.plan.creditsUsd, storage_gb: config.plan.storageGb },
     storage: { used_bytes: await storageUsed(uid), quota_bytes: storageQuotaBytes() },
     prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd, actions: config.credits.actions },
+    clips: { min_seconds: config.clips.minSeconds, max_seconds: config.clips.maxSeconds },
     packs: config.credits.packs.map((p) => ({ id: p.id, usd: p.usd, available: !!p.variantId })),
     payments_enabled: paymentsEnabled(), recent: events,
   });

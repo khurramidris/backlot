@@ -17,6 +17,8 @@ import { debit, sellPrice, settleTake } from '../billing.js';
 import { probe, thumbnail } from '../media/ffmpeg.js';
 import { compileShot, validateH3, costOf } from './compiler.js';
 import { compileInputFor, projectAssets } from './shots.js';
+import { buildClipRequest, providerFor, refreshClip } from './clips.js';
+import { moderate } from '../moderation.js';
 
 interface VideoApi {
   createVideoTask(body: H3Request, o: { key: string }): Promise<string>;
@@ -26,6 +28,10 @@ interface VideoApi {
 /** RunPod is always real (tests point it at a fake server); otherwise mocks replace MiniMax in dev. */
 export const mm = (provider: string = config.videoProvider): VideoApi => (provider === 'runpod' ? runpod : config.mock ? mockMinimax : real);
 export const takeKey = (t: any) => `projects/${t.project_id}/takes/${t.id}.mp4`;
+/** Resolutions a provider renders: our own GPUs make 768P only, so 2K is never sold there. */
+export const resolutionsFor = (provider: string) => (provider === 'runpod' ? ['768P'] : ['768P', '2K']);
+/** Whether a scene's previous clip goes to the next shot as a reference video (CHAIN_CLIPS, auto = not on our own GPUs). */
+const chainClips = () => (config.chainClips === 'auto' ? config.videoProvider !== 'runpod' : config.chainClips === '1');
 
 /** Create a new take for a shot and queue it. */
 export async function queueRender(shotId: string, o: { resolution?: string } = {}) {
@@ -35,6 +41,7 @@ export async function queueRender(shotId: string, o: { resolution?: string } = {
   const [busy] = await sql`select id from takes where shot_id = ${shotId} and status in ('pending','submitted','running') limit 1`;
   if (busy) return { take_id: busy.id, already_running: true };
   const resolution = o.resolution || s.p_res || '768P';
+  if (!resolutionsFor(config.videoProvider).includes(resolution)) throw new PermanentError(`${resolution} isn't available: videos are made at 768P.`, 'bad_input');
   // The hold and the take are created together: no take without its credit, no credit without its take.
   const t = await sql.begin(async (tx) => {
     const held = await debit(tx, s.owner_id, sellPrice(resolution, s.duration), 'render_hold', shotId);
@@ -50,12 +57,19 @@ export async function queueRender(shotId: string, o: { resolution?: string } = {
 /** Build the exact H3 body for a take. Media is referenced by URL when MiniMax can reach our files, otherwise inlined. */
 export async function buildRequest(shot: any, resolution: string) {
   const [p] = await sql`select * from projects where id = ${shot.project_id}`;
+  const media = async (key: string) => {
+    const mode = config.minimax.mediaMode;
+    if (mode !== 'inline') { const u = await storage.providerUrl(key); if (u) return u; if (mode === 'url') throw new PermanentError('MINIMAX_MEDIA_MODE=url but files are not reachable from the internet (set PUBLIC_BASE_URL or use S3 storage).', 'config'); }
+    return storage.dataUri(key);
+  };
+  if (p.mode === 'clip') return { ...(await buildClipRequest(p, shot, media)), provider: providerFor(p), mode: p.mode };
+
   const scene = shot.scene_id ? (await sql`select * from scenes where id = ${shot.scene_id}`)[0] : null;
   const A = await projectAssets(p.id);
 
   // Continuity: pass the previous approved clip of the same scene as a reference video.
   let prev: any = null;
-  if (shot.chain_prev && p.settings?.chain_clips) {
+  if (shot.chain_prev && p.settings?.chain_clips && chainClips()) {
     [prev] = await sql`select t.file_key, t.media from shots s join takes t on t.id = s.approved_take_id
       where s.scene_id = ${shot.scene_id} and s.idx = ${shot.idx - 1} and s.status = 'approved'`;
   }
@@ -64,11 +78,6 @@ export async function buildRequest(shot: any, resolution: string) {
   const c = compileShot(input);
   const prompt = shot.prompt_locked && shot.prompt ? shot.prompt : c.prompt;
 
-  const media = async (key: string) => {
-    const mode = config.minimax.mediaMode;
-    if (mode !== 'inline') { const u = await storage.providerUrl(key); if (u) return u; if (mode === 'url') throw new PermanentError('MINIMAX_MEDIA_MODE=url but files are not reachable from the internet (set PUBLIC_BASE_URL or use S3 storage).', 'config'); }
-    return storage.dataUri(key);
-  };
   const content: H3Content[] = [{ type: 'text', text: prompt }];
   const refs: any[] = [];
   for (const a of c.images) { content.push({ type: 'image_url', image_url: { url: await media(a.file_key!) }, role: 'reference_image' }); refs.push({ role: 'reference_image', asset: a.key }); }
@@ -88,7 +97,7 @@ export async function buildRequest(shot: any, resolution: string) {
   const bytes = JSON.stringify(body).length;
   if (bytes > 60 * 1024 * 1024) throw new PermanentError(`Request is ${(bytes / 1048576).toFixed(1)} MB, over MiniMax's 64 MB limit. Use S3 storage or PUBLIC_BASE_URL so media is sent by URL.`, 'too_large');
   const loggable = { model: body.model, resolution: body.resolution, duration: body.duration, ratio: body.ratio, prompt, refs, warnings: [...c.warnings, ...(videoNote ? [videoNote] : [])], bytes };
-  return { body, loggable, owner: p.owner_id };
+  return { body, loggable, owner: p.owner_id, provider: providerFor(p), mode: p.mode };
 }
 
 export async function submitTake(takeId: string): Promise<any | Again> {
@@ -100,10 +109,16 @@ export async function submitTake(takeId: string): Promise<any | Again> {
     where t.status in ('submitted','running') and p.owner_id = (select owner_id from projects where id = ${t.project_id})`;
   if (mine >= config.minimax.maxConcurrentPerUser) return { again: 15, progress: `waiting for one of your ${mine} renders to finish` };
   const [shot] = await sql`select * from shots where id = ${t.shot_id}`;
-  const { body, loggable } = await buildRequest(shot, t.resolution);
+  const { body, loggable, owner, provider, mode } = await buildRequest(shot, t.resolution);
+  // A prompt the customer wrote by hand goes straight to the video model: check it first (clips are checked on creation).
+  if (shot.prompt_locked && mode !== 'clip') {
+    const text = (body.content.find((x) => x.type === 'text') as any)?.text || '';
+    const v = await moderate({ ownerId: owner, projectId: shot.project_id, text });
+    if (!v.allowed) { await failTake(takeId, shot.id, `Refused by the content check: ${v.reason}`, 'sensitive_content', loggable); return { blocked: v.category }; }
+  }
   try {
-    const taskId = await mm(config.videoProvider).createVideoTask(body, { key: takeKey(t) });
-    await sql`update takes set status = 'submitted', provider = ${config.videoProvider}, provider_task_id = ${taskId}, request = ${sql.json(loggable)}, submitted_at = now() where id = ${takeId}`;
+    const taskId = await mm(provider).createVideoTask(body, { key: takeKey(t) });
+    await sql`update takes set status = 'submitted', provider = ${provider}, provider_task_id = ${taskId}, request = ${sql.json(loggable)}, submitted_at = now() where id = ${takeId}`;
     await sql`update shots set status = 'rendering', updated_at = now() where id = ${shot.id}`;
     await enqueue('take.poll', { takeId }, { projectId: t.project_id, delaySec: config.minimax.pollSeconds, maxAttempts: 8 });
     return { task_id: taskId };
@@ -171,6 +186,7 @@ export async function pollTake(takeId: string): Promise<any | Again> {
     await settleTake(takeId, !fatal); // the customer only pays for a usable clip
     await sql`update shots set status = ${fatal ? 'failed' : 'review'}, error = ${fatal ? problems.join('; ') : null}, updated_at = now() where id = ${t.shot_id} and status <> 'approved'`;
     await refreshEpisodeStatus(t.shot_id);
+    await refreshClip(t.project_id);
     return { file_key: key, problems };
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
@@ -180,8 +196,9 @@ async function failTake(takeId: string, shotId: string, error: string, code: str
     ${request ? sql`, request = ${sql.json(request)}` : sql``} where id = ${takeId}`;
   await settleTake(takeId, false);
   const [other] = await sql`select 1 from takes where shot_id = ${shotId} and status = 'succeeded' limit 1`;
-  await sql`update shots set status = ${other ? 'review' : code === 'sensitive_content' ? 'blocked' : 'failed'}, error = ${error.slice(0, 500)}, updated_at = now()
-    where id = ${shotId} and status <> 'approved'`;
+  const [s] = await sql`update shots set status = ${other ? 'review' : code === 'sensitive_content' ? 'blocked' : 'failed'}, error = ${error.slice(0, 500)}, updated_at = now()
+    where id = ${shotId} and status <> 'approved' returning project_id`;
+  if (s) await refreshClip(s.project_id);
 }
 
 export async function refreshEpisodeStatus(shotId: string) {

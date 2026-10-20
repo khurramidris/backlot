@@ -288,6 +288,114 @@ near((await api(ADMIN, 'POST', `/v1/admin/customers/${C}/credit`, { usd: -10, no
 assert.ok((await me(C)).recent.some((e: any) => e.reason === 'admin_grant'), 'grant shows in the customer’s history');
 log('  ✓ admins see the overview and customers and can adjust credit; customers can’t reach any of it');
 
+log('\n10c. Quick clips: text, image, references and remix');
+const E = 'eeeeeeee-0000-4000-8000-000000000005';
+const { ffmpeg: ff } = await import('../src/media/ffmpeg.js');
+const { readFile: rf } = await import('node:fs/promises');
+const mk = async (name: string, args: string[]) => { const f = join(OUT, name); await ff([...args, f]); return { name, data: await rf(f) }; };
+const red = await mk('red.png', ['-f', 'lavfi', '-i', 'color=c=red:s=640x480', '-frames:v', '1']);
+const blue = await mk('blue.png', ['-f', 'lavfi', '-i', 'color=c=blue:s=480x640', '-frames:v', '1']);
+const voice = await mk('voice.mp3', ['-f', 'lavfi', '-i', 'sine=frequency=330:duration=3', '-c:a', 'libmp3lame']);
+const src = await mk('src.mp4', ['-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=30:d=3', '-f', 'lavfi', '-i', 'sine=frequency=500:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-shortest']);
+const blob = (f: { name: string; data: Buffer }, type: string) => ({ ...f, type });
+async function clip(uid: string, fields: Record<string, any>, files: Record<string, { name: string; data: Buffer; type: string }[]> = {}, expect = [201]) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) for (const x of [v].flat()) fd.append(k, String(x));
+  for (const [k, list] of Object.entries(files)) for (const f of list) fd.append(k, new Blob([new Uint8Array(f.data)], { type: f.type }), f.name);
+  const r = await fetch(base + '/v1/clips', { method: 'POST', headers: { authorization: `Bearer dev:${uid}` }, body: fd });
+  const j: any = await r.json().catch(() => ({}));
+  if (!expect.includes(r.status)) throw new Error(`POST /v1/clips → ${r.status} ${JSON.stringify(j).slice(0, 300)}`);
+  return j;
+}
+async function clipDone(uid: string, id: string) {
+  for (let i = 0; i < 240; i++) {
+    const d = await api(uid, 'GET', `/v1/projects/${id}`);
+    if (d.project.stage === 'done' || d.project.stage === 'failed') return d;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error('clip timeout');
+}
+const text = { mode: 'text', prompt: 'A red kite dances over a stormy sea at dusk.', seconds: 5, aspect: '9:16' };
+assert.equal((await clip(B, text, {}, [402])).error.code, 'subscription_required', 'clips need a plan too');
+await subscription('subscription_created', E, 503, 'active');
+await webhook(invoice(E, 7003, 503));
+near(await balance(E), 20, 'plan credit');
+
+const tc = await clip(E, text);
+near(await balance(E), 19.5, 'a 5-second clip holds 5 × $0.10');
+let cv = await clipDone(E, tc.project.id);
+assert.equal(cv.project.stage, 'done'); assert.equal(cv.project.mode, 'clip');
+assert.equal(cv.clip.takes.length, 1); assert.equal(cv.clip.takes[0].status, 'succeeded'); assert.ok(cv.clip.takes[0].url);
+const clipFile = join(OUT, 'clip.mp4');
+await writeFile(clipFile, Buffer.from(await (await fetch(cv.clip.takes[0].url)).arrayBuffer()));
+const ci = await probe(clipFile);
+assert.ok(Math.abs(ci.duration - 5) < 1 && ci.has_audio && ci.height > ci.width, `a 5 s vertical clip with sound (${ci.duration}s ${ci.width}×${ci.height})`);
+near(await balance(E), 19.5, 'kept for a good clip');
+assert.ok((await api(E, 'GET', '/v1/projects')).projects.find((x: any) => x.id === tc.project.id).thumb_url, 'the clip shows a thumbnail on the dashboard');
+
+// guards: nothing is charged and nothing is created when a request is turned away
+const beforeGuards = await balance(E);
+const [{ n: projectsBefore }] = await sql`select count(*)::int n from projects where owner_id = ${E}`;
+assert.equal((await clip(E, { ...text, mode: 'image' }, {}, [400])).error.code, 'bad_input', 'image to video needs a picture');
+assert.equal((await clip(E, { ...text, mode: 'image' }, { images: [blob(red, 'image/png')] }, [400])).error.code, 'consent_required');
+assert.equal((await clip(E, { ...text, seconds: 30 }, {}, [400])).error.code, 'bad_input', 'one generation is at most 15 s');
+assert.equal((await clip(E, { ...text, mode: 'image', consent: true }, { images: [{ name: 'x.png', type: 'image/png', data: Buffer.from('not a picture') }] }, [400])).error.code, 'bad_input');
+const nope = await clip(E, { ...text, prompt: 'FORCE_SENSITIVE something' }, {}, [422]);
+assert.equal(nope.error.code, 'sensitive_content'); assert.match(nope.error.message, /can’t make this video/);
+near(await balance(E), beforeGuards, 'nothing charged for refused requests');
+const [{ n: projectsAfter }] = await sql`select count(*)::int n from projects where owner_id = ${E}`;
+assert.equal(projectsAfter, projectsBefore, 'and nothing created');
+
+// image → video, references (pictures and a voice), and a remix of a video
+const ic = await clip(E, { ...text, mode: 'image', aspect: '16:9', consent: true, prompt: 'The flag starts to flutter.' }, { images: [blob(red, 'image/png')] });
+const rc = await clip(E, { mode: 'reference', seconds: 6, aspect: '1:1', consent: true, prompt: 'Maya in image 1 hands the blue card in image 2 to the camera and says hello.',
+  labels: ['Maya', ''], audio_label: 'Maya' }, { images: [blob(red, 'image/png'), blob(blue, 'image/png')], audio: [blob(voice, 'audio/mpeg')] });
+const xc = await clip(E, { mode: 'remix', seconds: 5, aspect: '16:9', consent: true, prompt: 'Replace the pattern in video 1 with the red wall in image 1.' },
+  { video: [blob(src, 'video/mp4')], images: [blob(red, 'image/png')] });
+for (const c of [ic, rc, xc]) assert.equal((await clipDone(E, c.project.id)).project.stage, 'done');
+const refsOf = async (id: string) => (await api(E, 'GET', `/v1/projects/${id}`)).clip;
+const icv = await refsOf(ic.project.id), rcv = await refsOf(rc.project.id), xcv = await refsOf(xc.project.id);
+assert.deepEqual(icv.takes[0].request.refs.map((r: any) => r.role), ['first_frame']);
+assert.deepEqual(rcv.takes[0].request.refs.map((r: any) => r.role), ['reference_image', 'reference_image', 'reference_audio']);
+assert.match(rcv.takes[0].request.prompt, /^References: reference image 1 is Maya\.\nMaya speaks with the voice in reference audio 1\.\nMaya in reference image 1 hands the blue card in reference image 2/);
+assert.deepEqual(xcv.takes[0].request.refs.map((r: any) => r.role), ['reference_image', 'reference_video']);
+assert.equal(rcv.inputs.length, 3); assert.ok(rcv.inputs.every((i: any) => i.url), 'inputs are shown back with links');
+const [{ key: vkey }] = await sql`select key from files where project_id = ${xc.project.id} and key like '%/inputs/video.mp4'`;
+const vi = await probe(join(process.env.STORAGE_DIR!, vkey));
+assert.ok(Math.abs(vi.fps - 24) < 0.01 && Math.abs(vi.duration - 3) < 0.3, `remix source normalised to 24 fps (${vi.fps} fps, ${vi.duration}s)`);
+near(await balance(E), beforeGuards - 0.5 - 0.6 - 0.5, 'each clip charged for its length');
+
+// another version, with a new prompt and length; and the check covers retakes too
+const b1 = await balance(E);
+await api(E, 'POST', `/v1/clips/${tc.project.id}/retake`, { prompt: 'A blue kite instead, calmer sea.', seconds: 6 });
+near(await balance(E), b1 - 0.6, 'the new version holds 6 × $0.10');
+cv = await clipDone(E, tc.project.id);
+assert.equal(cv.clip.takes.length, 2); assert.equal(cv.clip.takes[0].status, 'succeeded'); assert.equal(cv.clip.seconds, 6);
+assert.match(cv.clip.prompt, /blue kite/);
+assert.equal((await api(E, 'POST', `/v1/clips/${tc.project.id}/retake`, { prompt: 'FORCE_SENSITIVE' }, [422])).error.code, 'sensitive_content');
+near(await balance(E), b1 - 0.6, 'a refused retake costs nothing');
+await api(A, 'GET', `/v1/projects/${tc.project.id}`, undefined, [404]);
+await api(A, 'POST', `/v1/clips/${tc.project.id}/retake`, {}, [404]);
+await api(E, 'DELETE', `/v1/projects/${xc.project.id}`);
+assert.equal((await sql`select 1 from files where project_id = ${xc.project.id}`).length, 0, 'deleting a clip frees its files');
+log('  ✓ text, image, reference and remix clips render and are charged by the second; refused or invalid requests cost nothing; versions and deletes work');
+
+log('\n10d. Company dashboard');
+await api(E, 'GET', '/v1/admin/business', undefined, [404]);
+const biz = await api(ADMIN, 'GET', '/v1/admin/business?days=30');
+const [{ usd: paidTotal }] = await sql`select coalesce(sum(amount_usd), 0)::float usd from payments`;
+near(biz.money.revenue_usd, Math.round(paidTotal * 100) / 100, 'revenue is every payment in the range');
+assert.ok(biz.money.fees_usd > 0 && biz.money.net_revenue_usd < biz.money.revenue_usd, 'payment fees are taken off');
+assert.ok(biz.customers.paying >= 3 && biz.customers.mrr_usd === biz.customers.paying * 20, 'paying customers and MRR');
+assert.ok(biz.usage.clips >= 3 && biz.usage.clips_done >= 3 && biz.usage.films >= 1, 'films and clips still in accounts counted (deleted ones go)');
+assert.ok(biz.usage.renders_ok >= 10, 'finished renders counted from the cost ledger, deleted videos included');
+assert.ok(biz.usage.renders_ok > 0 && biz.usage.video_seconds > 0, 'renders counted');
+assert.ok(biz.money.credits_spent_usd > 0, 'credits customers spent');
+assert.equal(biz.daily.length, 30); assert.ok(biz.daily.some((d: any) => d.revenue_usd > 0 && d.videos > 0));
+assert.ok(biz.problems.render_errors.some((e: any) => e.code === 'sensitive_content') || biz.usage.renders_refused >= 0);
+assert.ok(typeof biz.health.renders_waiting === 'number' && biz.health.storage_bytes > 0);
+log(`  ✓ revenue $${biz.money.revenue_usd}, ${biz.customers.paying} paying, ${biz.usage.films} films and ${biz.usage.clips} clips, ${biz.usage.renders_ok} renders; admins only`);
+
 log('\n11. Cancel, then expiry');
 await subscription('subscription_cancelled', A, 501, 'cancelled', { ends_at: future(10) });
 m = await me(A);

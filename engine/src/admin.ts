@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { sql, plain } from './db.js';
 import { PermanentError } from './queue.js';
 import { balances, credit, isActiveStatus, planOf, storageUsed, storageQuotaBytes } from './billing.js';
+import { businessReport } from './business.js';
 
 type Env = { Variables: { uid: string; email: string | null } };
 export const admin = new Hono<Env>();
@@ -38,6 +39,9 @@ admin.get('/overview', async (c) => {
     films, provider_spend_7d: spend, payments_7d: money, recent_failures: failures,
   }));
 });
+
+/** The company dashboard: money in and out, customers, usage, problems and live health for the last N days. */
+admin.get('/business', async (c) => c.json(plain(await businessReport(Number(c.req.query('days') || 30)))));
 
 /** Search by email (any part of it) or exact user id; empty search lists the most recently active. */
 admin.get('/customers', async (c) => {
