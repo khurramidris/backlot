@@ -46,10 +46,8 @@ and voice references.
 
 1. Open **console.runpod.io**, sign in and add some credit (**Billing**; $25 is plenty to start).
 2. Click **Storage**, then **New Network Volume**.
-3. **Data center:** pick one that offers **RTX 5090** for serverless. Prefer one in **Canada, Japan, Australia,
-   Singapore or India**: the H3 model's licence excludes the United States, the European Union, the United Kingdom and
-   South Korea, and the test kit stayed out of them too. (Read the H3 licence before you charge customers. Where the GPU
-   runs is not the only thing it covers.)
+3. **Data center:** pick one that shows **RTX 5090** with good availability for serverless, close to you or your
+   storage. The endpoint can only use GPUs in this data center.
 4. **Name:** `backlot-h3`. **Size:** `75` GB. Click **Create**.
 
 ## Step 3. The serverless endpoint
