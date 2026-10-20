@@ -17,15 +17,18 @@ film is the real test. If anything fails, the RunPod logs say why: send me the l
 | A **network volume** (75 GB) | A RunPod disk that keeps the model files (about 45 GB), so each GPU doesn't download them again. |
 | A **serverless endpoint** | RunPod turns GPUs on when Backlot sends a shot and off again when there's nothing to do. You pay per second of GPU use. |
 
-The model recipe: MiniMax H3 Ref2VA (8-bit), LightX2V's 4-step speed-up, and sparse attention (75%) on one **RTX 5090
-(32 GB)**. A shot is 5 to 15 seconds of 24 fps video at 768 px with lip-synced sound, made from the shot's character, set
-and voice references.
+The model recipe is Kablex's ComfyUI-Ref2VA-VSA: MiniMax H3 Ref2VA (8-bit), LightX2V's 4-step speed-up, and sparse
+attention (75%). Its author measured about 72 seconds per 5-second clip on one **RTX 4090 (24 GB)**, the cheapest GPU it
+fits, so that's what we use, with the faster **RTX 5090 (32 GB)** as a backup when no 4090 is free. A shot is 5 to
+15 seconds of 24 fps video at 768 px with lip-synced sound, made from the shot's character, set and voice references.
 
 ## What it costs (roughly)
 
 - **Network volume:** about $5 a month for 75 GB, whether or not you use it.
-- **GPU time:** RunPod shows the per-second price of the 32 GB tier when you create the endpoint. You pay only while a
-  worker is on: rendering, or waiting a minute or two after the last shot before it switches off.
+- **GPU time:** RTX 4090 serverless is $0.00031 a second (about $1.12 an hour), and you pay only while a worker is on:
+  rendering, loading the model, or the minute or two after the last shot before it switches off. Estimate for a
+  1-minute film (12 shots of 5 seconds): **about $0.40 to $0.50**. The first real film gives the true number on the
+  Admin page.
 - **First start:** the first worker downloads the 45 GB of model files onto the volume (about 10 to 20 minutes of paid
   GPU time, once). Each new worker then loads them into memory before its first shot (a few minutes).
 
@@ -46,8 +49,8 @@ and voice references.
 
 1. Open **console.runpod.io**, sign in and add some credit (**Billing**; $25 is plenty to start).
 2. Click **Storage**, then **New Network Volume**.
-3. **Data center:** pick one that shows **RTX 5090** with good availability for serverless, close to you or your
-   storage. The endpoint can only use GPUs in this data center.
+3. **Data center:** pick one that shows **RTX 4090** (and ideally RTX 5090) with good availability for serverless,
+   close to you or your storage. The endpoint can only use GPUs in this data center.
 4. **Name:** `backlot-h3`. **Size:** `75` GB. Click **Create**.
 
 ## Step 3. The serverless endpoint
@@ -55,7 +58,8 @@ and voice references.
 1. Click **Serverless**, then **New Endpoint**, then the option to use a **Docker image** (container image).
 2. **Container image:** `ghcr.io/khurramidris/backlot-gpu-worker:latest`. (If you kept the image private, pick your
    registry credentials here.)
-3. **GPU:** tick only **32 GB** (RTX 5090).
+3. **GPU:** tick **24 GB PRO** (RTX 4090) first, then **32 GB PRO** (RTX 5090) as the second choice. Leave the plain
+   24 GB, 16 GB and other tiers unticked: those cards are slower, so a clip costs the same or more.
 4. Settings, as RunPod names them:
    - **Active workers** (also called minimum): **1** for now. You'll set it back to 0 in step 4.
    - **Max workers:** **1** for your own tests.
@@ -77,7 +81,8 @@ and voice references.
 With **Active workers** at 1, RunPod starts one worker straight away. Open the endpoint, then **Workers** (or **Logs**),
 and watch. You'll see, in order:
 1. `First start: downloading 45 GB of H3 weights …` and one `ok (downloaded and verified)` line per file (10 to 20 minutes, once).
-2. A line like `{"gpu": "NVIDIA GeForce RTX 5090", "vram_gb": 31.4, … "sol_attn": "ok"}`: the GPU check passed.
+2. A line like `{"gpu": "NVIDIA GeForce RTX 4090", "vram_gb": 24.0, … "host_ram_gb": …, "sol_attn": "ok"}`: the GPU check
+   passed. Note `host_ram_gb` (the computer's memory): it decides whether the model stays loaded between shots.
 3. `H3 worker ready`.
 
 Then set **Active workers** back to **0** and save, so you only pay while rendering. (If you leave it at 1, that worker
@@ -90,10 +95,10 @@ If you see an error instead, look it up under **If something goes wrong** below.
 **With the desktop app** (`START-HERE.md`, Part B): **Settings → Use my own accounts**, then for video choose
 **My H3 on RunPod**, paste the RunPod key and endpoint ID and click **Test**. Also set:
 - **Video clips made at once:** **1** (the same as Max workers, so no shot waits in RunPod's queue).
-- **Your GPU cost per second:** the 32 GB price from RunPod, so the Admin page shows what each film cost you.
+- **Your GPU cost per second:** `0.00031` (the 4090 price), so the Admin page shows what each film cost you.
 
 **Running from the repository** (`docs/LOCAL.md`): in `engine/.env.local` set `VIDEO_PROVIDER=runpod`, `RUNPOD_API_KEY`,
-`RUNPOD_ENDPOINT_ID`, `RUNPOD_GPU_PRICE_PER_SECOND`, and `VIDEO_MAX_INFLIGHT=1`.
+`RUNPOD_ENDPOINT_ID`, `RUNPOD_GPU_PRICE_PER_SECOND=0.00031` (the 4090 price) and `VIDEO_MAX_INFLIGHT=1`.
 
 **On the website** (Railway, `docs/BETA.md`): the same `RUNPOD_*` settings plus `VIDEO_PROVIDER=runpod`, in Railway's
 **Variables**.
@@ -137,7 +142,7 @@ Changing a setting restarts the workers. Compare settings on the same shot: **Fi
 | `failed its integrity check` | A download was damaged. It was deleted; restart the worker (**Workers** → the worker → **Terminate**) and it downloads that file again. |
 | `ComfyUI stopped during the render` or `CUDA out of memory` | The model didn't fit. It restarts for the next shot. If it keeps happening, tell me: the next things to try are `COMFY_ARGS` = `--reserve-vram 1`, or a GPU with more memory. |
 | `Warning: … GB host RAM` | Not an error. The test kit asked for about 96 GB of computer memory (not GPU memory). If renders crash or stall while loading, that's the likely reason. |
-| In Backlot: `H3 task still queued after 30 minutes` | No worker could start: RunPod had no free 5090 in that data center, or the worker failed (see its log). Backlot cancels the job and refunds. |
+| In Backlot: `H3 task still queued after 30 minutes` | No worker could start: RunPod had no free 4090 or 5090 in that data center, or the worker failed (see its log). Backlot cancels the job and refunds. |
 
 ## For developers
 

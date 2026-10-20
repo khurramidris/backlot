@@ -17,9 +17,10 @@ contract. Step-by-step setup in plain language: `docs/SELF-HOSTED-H3.md`.
 
 ## The H3 recipe
 
-From the RunPod test kit (Kablex ComfyUI-Ref2VA-VSA, audited 17–20 October 2026): H3 Ref2VA pruned INT8 + LightX2V
-four-step adapter + FastH3 VSA gates at 75% video sparsity + comfy-kitchen's CUDA Sol attention, on one RTX 5090
-(32 GB). 24 fps on H3's frame grid (5 s asks for 124 frames, about 5.17 s), 768 px short edge, native 32 kHz stereo audio.
+Kablex ComfyUI-Ref2VA-VSA (pinned and audited 17–20 October 2026): H3 Ref2VA pruned INT8 + LightX2V four-step
+adapter + FastH3 VSA gates at 75% video sparsity + comfy-kitchen's CUDA Sol attention, on one RTX 4090 (24 GB; the
+author measured about 72 s per 5-second clip) or RTX 5090 (32 GB). 24 fps on H3's frame grid (5 s asks for 124
+frames, about 5.17 s), 768 px short edge, native 32 kHz stereo audio.
 
 The engine's prompts are written for MiniMax's hosted API. `to_h3_prompt()` rewrites them into the open model's tags:
 `reference image 2` → `<Picture 2>`, `reference audio 1` → `<Audio 1>`, `reference video 1` → `<Video 1>`, and
@@ -38,10 +39,10 @@ python test_h3.py      # H3 backend: graph, staging, errors, restarts (fake Comf
 
 1. **Image.** GitHub builds it (`.github/workflows/gpu-image.yml`) and publishes `ghcr.io/<owner>/backlot-gpu-worker` on
    every change to `main`. Or by hand: `docker build -t <registry>/backlot-gpu-worker:<tag> gpu-worker`.
-2. **Network volume** of 75 GB in a data center with RTX 5090s. The first worker downloads the weights into
+2. **Network volume** of 75 GB in a data center with RTX 4090s (and 5090s). The first worker downloads the weights into
    `/runpod-volume/h3` (or run `python /app/h3/download_models.py --dest /workspace/h3` on a Pod with the volume).
 3. **Serverless endpoint** from the image:
-   - GPU: 32 GB (RTX 5090). **Allowed CUDA versions: 13.0** (the image needs a CUDA 13 driver).
+   - GPU: 24 GB PRO (RTX 4090), then 32 GB PRO (RTX 5090). **Allowed CUDA versions: 13.0** (the image needs a CUDA 13 driver).
    - Attach the network volume. No environment variables are required (`MODEL_BACKEND=h3` is the image default;
      `fake` for a dry run). Optional ones are in `backends/h3.py` and `docs/SELF-HOSTED-H3.md`.
    - Workers: min 0, max = your budget cap (the engine's `RUNPOD_MAX_WORKERS` keeps this in sync).

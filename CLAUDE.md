@@ -65,7 +65,7 @@ FFmpeg and an automatic cloudflared tunnel for RunPod. See `docs/DESKTOP.md`; ch
 `textFilter()` in `engine/src/media/ffmpeg.ts`.
 
 ## Not done yet
-- A first real run of the self-hosted H3 worker on a RunPod RTX 5090 (`docs/SELF-HOSTED-H3.md`). It is tested on CPU
+- A first real run of the self-hosted H3 worker on a RunPod RTX 4090/5090 (`docs/SELF-HOSTED-H3.md`). It is tested on CPU
   against a fake ComfyUI only: GPU fit, speed, cost per clip and quality are unmeasured.
 - Production accounts (Supabase, Railway, MiniMax, Lemon Squeezy): the founder follows `docs/BETA.md`. Admins see
   a live Setup check at `/setup` (`engine/src/preflight.ts`, also `npm --prefix engine run preflight`).

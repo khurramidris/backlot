@@ -36,7 +36,7 @@ def main() -> None:
     vram = props.total_memory / 2**30
     min_vram = float(os.environ.get("H3_MIN_VRAM_GB", "24"))
     if vram < min_vram - 1:
-        fail(f"{props.name} has {vram:.0f} GB of memory; this recipe needs about {min_vram:.0f} GB (pick the 32 GB tier)")
+        fail(f"{props.name} has {vram:.0f} GB of memory; this recipe needs about {min_vram:.0f} GB (pick the 24 GB PRO or 32 GB tier)")
 
     report = {"gpu": props.name, "vram_gb": round(vram, 1), "compute_capability": list(torch.cuda.get_device_capability(0)),
               "host_ram_gb": round(host_ram_gib(), 1), "torch": torch.__version__, "cuda": torch.version.cuda}
