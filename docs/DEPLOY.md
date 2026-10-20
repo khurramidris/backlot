@@ -133,17 +133,39 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
 9. As an admin (`ADMIN_USER_IDS`), open `/v1/admin/capacity`: RunPod workers and the controller's decision.
 
 ## Operations
-- **Admin** (`/admin`, users in `ADMIN_USER_IDS`) shows:
-  - the last 7 days: paying customers and monthly revenue, accounts, films finished and failed, payments,
-    and provider spend by kind
-  - recent failures
+- **Admin** (`/admin`, users in `ADMIN_USER_IDS`) is the company dashboard, for the last 7 days, 30 days,
+  90 days or 12 months:
+  - money: revenue (plans and top-ups), costs (AI and GPU, fixed bills, estimated payment fees), profit and
+    margin, and monthly recurring revenue
+  - money in and out per day, with a table view
+  - where the money goes: Claude (writing and content checks), pictures, video, voices, payment fees, each fixed
+    bill, video cost per second against the price, credits spent and credits still owed to customers
+  - health right now: queue, background jobs, storage, RunPod workers
+  - customers: accounts, new, active, paying, cancelling, payment problems
+  - what was made: films, clips, renders, failures, content refusals, average render time
+  - problems (failed films and renders, refusals) and the top customers by spend
   - customer search by email or user id
+
+  For true profit, list your monthly bills in `FIXED_COSTS_MONTHLY` (`Railway:20,Supabase:25,RunPod storage:5.25`).
+  Payment fees are estimated with `PAYMENT_FEE_PCT` (5) and `PAYMENT_FEE_USD` (0.50), Lemon Squeezy's standard
+  rate. The same report is `GET /v1/admin/business?days=30`.
   - each customer's detail: plan, credits, storage, films with charged vs provider cost, payments and the credit
     ledger, plus credit grants and deductions (with a note; top-up bucket; ledger reasons
     `admin_grant` / `admin_deduct`)
 - **Setup check** (`/setup`) tests every production setting and service.
 - **Error alerts:** set `SENTRY_DSN`. It reports API errors (5xx), jobs that fail on their last attempt, and
   unhandled rejections.
+- **Content checks** (`MODERATION`, on by default): before anything is filmed, Claude's fast model checks quick-clip
+  prompts and uploads, uploaded character and set pictures, and shot prompts a customer rewrote by hand (Claude
+  follows the same rules when it writes the others). It refuses nudity and sex, minors in any sexual or abusive
+  context, celebrities and politicians (deepfakes), real people in sexual, violent or deceptive scenes, gore, hate,
+  self-harm and serious crime. Drama, thrillers and non-gory action pass. A refusal is shown to the customer and
+  never charged. Verdicts are cached, so a retake costs nothing extra. The cost shows on `/admin` under "content
+  checks".
+- **Quick clips** are 5 to 15 seconds (`CLIP_MIN_SECONDS` sets the shortest). On your own RunPod H3,
+  image-to-video pins the picture as the first frame; if those clips look wrong, set
+  `CLIP_IMAGE_PROVIDER=minimax` to send just that mode to MiniMax. `CHAIN_CLIPS` (`auto`) decides whether films
+  send each scene's previous shot along for continuity: on with MiniMax, off on RunPod, where it doubles the GPU work.
 - **Rate limits** are per customer and in memory, per instance:
   - 600 API requests a minute
   - 30 new videos an hour

@@ -2,7 +2,7 @@
 
 | Folder | What | Stack |
 |---|---|---|
-| `web/` | The product UI: landing and pricing, sign-in and password reset, create, approve, watch, fix a shot, billing, account, terms and privacy | React 19, Vite, TanStack Router + Query, Tailwind v4, shadcn/Radix |
+| `web/` | The product UI: landing and pricing, sign-in and password reset, create, approve, watch, fix a shot, quick clips, billing, account, the company dashboard (admin), terms and privacy | React 19, Vite, TanStack Router + Query, Tailwind v4, shadcn/Radix |
 | `engine/` | API, durable job queue, AI pipeline, FFmpeg editing, credits, subscriptions (Lemon Squeezy), storage quota; serves `web/dist` | Node 22, Hono, Postgres (`postgres.js`), zod |
 | `gpu-worker/` | Renders one shot per job on RunPod Serverless | Python, RunPod SDK, FFmpeg, the H3 model |
 
@@ -42,6 +42,22 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
     job runs long.
   - `npm --prefix engine run eval:story` runs sample ideas through the whole engine and writes a report plus every
     script and plan (mock mode is free; a real run needs `EVAL_CONFIRM=1`).
+- **Quick clips** (`pipeline/clips.ts`, `POST /v1/clips`): one clip of 5 to 15 seconds, no story engine. A clip is a
+  project with `mode = 'clip'`, one episode and one shot, so it reuses the render path (hold, settle once, refund on
+  failure) and the project page. Four modes:
+  - text to video
+  - image to video: the picture is the first frame (`first_frame` role; MiniMax's `first_frame_image`, or
+    `MiniMaxH3AddGuide` on our worker)
+  - characters & products: up to 4 pictures and a voice as references
+  - remix: a video to change ("replace the man with the woman in picture 1")
+  Uploads are re-encoded by FFmpeg first (pictures to JPEG, video to 24 fps H.264 of at most 15 s, voice to 14 s
+  MP3) and stored under `projects/<id>/inputs/`. The customer's "image 2" or "the voice" becomes the wording H3
+  requests use (`normalizeRefs`). Another version is a new take of the same shot, optionally with a new prompt or
+  length.
+- **Content checks** (`moderation.ts`): our own H3 has no filter, so whatever reaches a video model without Claude
+  rewriting it is checked first by Claude's fast model: clip prompts and uploads, uploaded character and set pictures,
+  and hand-edited shot prompts. Verdicts are cached by content hash (`moderations`); a refusal is a 422
+  `sensitive_content` and never charged.
 - **Autopilot** (`engine/src/pipeline/autopilot.ts`) moves a project through the stages. It's a queue job that
   reschedules itself, so it survives restarts and costs nothing while waiting.
 - **Every step is a job** in Postgres (`engine/src/queue.ts`, `FOR UPDATE SKIP LOCKED`). Any number of
@@ -66,7 +82,9 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - **Auth:** Supabase Auth in the browser. The engine verifies the session token on every `/v1` request. All
   product data lives in the engine's tables; Supabase only knows about users.
 
-- **Operations:** `engine/src/admin.ts` (the admin console API), `engine/src/preflight.ts` (Setup check),
+- **Operations:** `engine/src/admin.ts` (the admin console API), `engine/src/business.ts` (the company dashboard:
+  revenue, costs and profit, customers, what was made, health and problems for a date range),
+  `engine/src/preflight.ts` (Setup check),
   `engine/src/ratelimit.ts` (per-customer limits) and `engine/src/monitoring.ts` (Sentry, optional).
 
 ## Invariants worth keeping
@@ -84,3 +102,7 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - Structured outputs make the answer's shape reliable; code still repairs its content. Never ask the model to
   write out its reasoning in a field (it can trigger refusals); thinking is adaptive and stays internal.
 - Anything that reaches an FFmpeg filter graph is validated first (`parseCutOptions`).
+- Customer uploads are decoded only through FFmpeg into a fresh JPEG, MP4 or MP3 before anything else reads them
+  or a model sees them.
+- What a customer writes or uploads for a video passes the content check before it reaches a video model, unless
+  Claude rewrote it first.
