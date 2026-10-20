@@ -62,7 +62,13 @@ assert r2v["ref_audios.ref_audio_0"] == ["300", 0] and (r2v["width"], r2v["heigh
 assert g["6"]["class_type"] == "Ref2VAVSAGatePatch" and g["7"]["inputs"]["model"] == ["6", 0] and g["11"]["inputs"]["steps"] == 4
 dense = h3.build_graph("x", 768, 1344, 124, 7, [], [], [], "p", attention="dense")
 assert "6" not in dense and dense["7"]["inputs"]["model"] == ["5", 0]
-print("ok  graph wiring (VSA and dense)")
+assert "18" not in g and g["12"]["inputs"]["conditioning"] == ["8", 0]
+i2v = h3.build_graph("x", 1344, 768, 124, 7, ["f.png"], [], [], "p", first_frame=True)
+guide = i2v["18"]["inputs"]
+assert i2v["18"]["class_type"] == "MiniMaxH3AddGuide" and guide["image"] == ["100", 0] and guide["frame_idx"] == 0
+assert guide["latent"] == ["8", 1] and i2v["12"]["inputs"]["conditioning"] == ["18", 0]
+assert i2v["8"]["inputs"]["ref_images.ref_image_0"] == ["100", 0], "the first frame is also <Picture 1>"
+print("ok  graph wiring (VSA, dense, first frame)")
 
 # ── Weights on the volume ──
 h3.MODEL_DIR = Path("/runpod-volume/h3")
@@ -101,7 +107,7 @@ base = next(l.split(":", 1)[1].strip() for l in open(args.extra_model_paths_conf
 files = lambda d: sorted(os.listdir(os.path.join(base, d)))
 info = {c: {"input": {"required": {}}} for c in ["UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly",
     "Ref2VAVSAGatePatch", "MiniMaxH3SigmaShift", "LoadImage", "LoadVideo", "GetVideoComponents", "LoadAudio",
-    "MiniMaxH3ReferenceToVideo", "RandomNoise", "KSamplerSelect", "BasicScheduler", "BasicGuider",
+    "MiniMaxH3ReferenceToVideo", "MiniMaxH3AddGuide", "RandomNoise", "KSamplerSelect", "BasicScheduler", "BasicGuider",
     "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"]}
 info["UNETLoader"]["input"]["required"]["unet_name"] = [files("diffusion_models")]
 info["CLIPLoader"]["input"]["required"]["clip_name"] = [files("text_encoders")]
@@ -199,14 +205,17 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 base = f"http://127.0.0.1:{server.server_port}"
 
 
-def job(prompt: str, n: int) -> dict:
+def job(prompt: str, n: int, video: bool = True, first_frame: bool = False) -> dict:
+    content = [{"type": "text", "text": prompt}]
+    if first_frame:
+        content.append({"type": "image_url", "image_url": {"url": f"{base}/face.png"}, "role": "first_frame"})
+    else:
+        content.append({"type": "image_url", "image_url": {"url": f"{base}/face.png"}, "role": "reference_image"})
+        if video:
+            content.append({"type": "video_url", "video_url": {"url": f"{base}/prev.mp4"}, "role": "reference_video"})
+        content.append({"type": "audio_url", "audio_url": {"url": f"{base}/voice.mp3"}, "role": "reference_audio"})
     return {"input": {
-        "request": {"model": "MiniMax-H3", "resolution": "768P", "duration": 5, "ratio": "9:16", "content": [
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"{base}/face.png"}, "role": "reference_image"},
-            {"type": "video_url", "video_url": {"url": f"{base}/prev.mp4"}, "role": "reference_video"},
-            {"type": "audio_url", "audio_url": {"url": f"{base}/voice.mp3"}, "role": "reference_audio"},
-        ]},
+        "request": {"model": "MiniMax-H3", "resolution": "768P", "duration": 5, "ratio": "9:16", "content": content},
         "upload": {"url": f"{base}/put/{n}.mp4?sig=x", "key": f"projects/p/takes/{n}.mp4", "content_type": "video/mp4"},
     }}
 
@@ -221,19 +230,25 @@ try:
     assert uploads["/put/1.mp4?sig=x"][4:8] == b"ftyp"
     [sent] = events("prompt")
     g = sent["graph"]
-    assert all(sent["staged"].values()) and len(sent["staged"]) == 2, "image and voice staged; the clip is off by default"
+    assert all(sent["staged"].values()) and len(sent["staged"]) == 3, "picture, previous clip and voice staged"
     assert g["100"]["inputs"]["image"].endswith(".png") and g["300"]["inputs"]["audio"].endswith(".mp3")
-    assert "<Picture 2>" in g["8"]["inputs"]["prompt"] and "<d>[English]" in g["8"]["inputs"]["prompt"]
+    assert g["200"]["class_type"] == "LoadVideo" and g["200"]["inputs"]["file"].endswith(".mp4")
+    prompt = g["8"]["inputs"]["prompt"]
+    assert "<Picture 2>" in prompt and "<d>[English]" in prompt and "<Video 1> is the shot" in prompt
     assert not list((tmp / "work" / "input").iterdir()) and not list((tmp / "work" / "output" / "backlot").iterdir())
     print("ok  render through the handler: graph, staging, upload, clean-up")
 
-    os.environ["H3_REFERENCE_VIDEO"] = "1"
-    handler.handler(job(engine_prompt, 2))
+    handler.handler(job(engine_prompt, 2, video=False))
     g = events("prompt")[-1]["graph"]
-    assert g["200"]["class_type"] == "LoadVideo" and g["200"]["inputs"]["file"].endswith(".mp4")
-    assert "<Video 1> is the shot" in g["8"]["inputs"]["prompt"]
-    del os.environ["H3_REFERENCE_VIDEO"]
-    print("ok  previous-shot clip passed when H3_REFERENCE_VIDEO=1")
+    assert "200" not in g and "reference video" not in g["8"]["inputs"]["prompt"].lower()
+    print("ok  without a previous clip, the sentence describing it is dropped")
+
+    handler.handler(job("The flag starts to flutter.", 6, first_frame=True))
+    g = events("prompt")[-1]["graph"]
+    assert g["18"]["class_type"] == "MiniMaxH3AddGuide" and g["12"]["inputs"]["conditioning"] == ["18", 0]
+    assert g["8"]["inputs"]["prompt"].startswith("<Picture 1> is the first frame of the video")
+    assert "/put/6.mp4?sig=x" in uploads
+    print("ok  image to video: the picture is pinned as the first frame")
 
     try:
         handler.handler(job("FAIL_RENDER", 3))

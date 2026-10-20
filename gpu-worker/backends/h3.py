@@ -10,14 +10,17 @@ generate() turns the engine's request into a ComfyUI graph, runs it and returns 
 The engine writes prompts for MiniMax's hosted API ("reference image 2 is Asma", `says: "…"`). The open weights expect
 H3's own tags, so to_h3_prompt() rewrites them: <Picture 2>, <Audio 1>, <Video 1> and <d>[English]…</d> for dialogue.
 
+Image-to-video (a quick clip's first_frame picture) is pinned at frame 0 with H3's MiniMaxH3AddGuide and also given as
+<Picture 1>. That's beta: the Ref2VA weights weren't trained for keyframes, so judge it on the first real clips (the
+engine's CLIP_IMAGE_PROVIDER can send image-to-video to MiniMax instead). Reference videos are passed whenever the
+engine sends one; the engine decides (CHAIN_CLIPS) whether a scene's previous shot goes along.
+
 Endpoint settings (environment variables):
   MODEL_DIR           where the weights are (default /runpod-volume/h3, i.e. the network volume)
   H3_AUTO_DOWNLOAD    1 (default): download missing weights on start. 0: fail instead
   H3_ATTENTION        vsa (default) | dense: the same adapter without sparse attention (slower; for comparisons)
   H3_SPARSITY         0.75 (default): share of video attention tiles skipped
   H3_REF_IMAGE_SIZE   match (default) | max: 2048 px references, better likeness, several times slower
-  H3_REFERENCE_VIDEO  0 (default): ignore the previous-shot clip. 1: pass it for continuity (much slower: references
-                      are never sparse, and a clip adds about as many tokens as the shot being rendered)
   H3_TIMEOUT_SEC      1700 (default): give up on one render after this long (the engine allows RunPod 1800)
   COMFY_ARGS          extra ComfyUI flags, e.g. "--reserve-vram 1"
 """
@@ -107,9 +110,10 @@ def to_h3_prompt(text: str, has_video: bool) -> str:
 
 def build_graph(prompt: str, width: int, height: int, length: int, seed: int, images: list[str], videos: list[str],
                 audios: list[str], prefix: str, attention: str = "vsa", sparsity: float = 0.75,
-                ref_image_size: str = "match") -> dict:
+                ref_image_size: str = "match", first_frame: bool = False) -> dict:
     """The ComfyUI API graph: the author's workflow (UNET → turbo LoRA → VSA gates → sigma shift, 4 Euler steps) with
-    the references as inputs of MiniMaxH3ReferenceToVideo. File names are in ComfyUI's input folder."""
+    the references as inputs of MiniMaxH3ReferenceToVideo. File names are in ComfyUI's input folder. With first_frame,
+    images[0] is also anchored at frame 0 of the video."""
     g: dict = {}
 
     def add(i: int, cls: str, **inputs):
@@ -141,7 +145,11 @@ def build_graph(prompt: str, width: int, height: int, length: int, seed: int, im
     add(9, "RandomNoise", noise_seed=seed)
     add(10, "KSamplerSelect", sampler_name="euler")
     add(11, "BasicScheduler", model=["7", 0], scheduler="simple", steps=4, denoise=1.0)
-    add(12, "BasicGuider", model=["7", 0], conditioning=["8", 0])
+    conditioning = ["8", 0]
+    if first_frame and images:
+        add(18, "MiniMaxH3AddGuide", positive=["8", 0], vae=["3", 0], latent=["8", 1], image=["100", 0], frame_idx=0)
+        conditioning = ["18", 0]
+    add(12, "BasicGuider", model=["7", 0], conditioning=conditioning)
     add(13, "SamplerCustomAdvanced", noise=["9", 0], guider=["12", 0], sampler=["10", 0], sigmas=["11", 0],
         latent_image=["8", 1])
     add(14, "VAEDecode", samples=["13", 0], vae=["3", 0])
@@ -156,7 +164,6 @@ def _settings() -> dict:
         "attention": os.environ.get("H3_ATTENTION", "vsa").lower(),
         "sparsity": float(os.environ.get("H3_SPARSITY", "0.75")),
         "ref_image_size": os.environ.get("H3_REF_IMAGE_SIZE", "match").lower(),
-        "reference_video": os.environ.get("H3_REFERENCE_VIDEO", "0").lower() in ("1", "true", "yes", "on"),
         "timeout": float(os.environ.get("H3_TIMEOUT_SEC", "1700")),
     }
     if s["attention"] not in ("vsa", "dense"):
@@ -277,7 +284,7 @@ def _choices(info: dict, cls: str, key: str):
 def _preflight(attention: str) -> None:
     """Every node and weight the graph uses is there, before a customer's render depends on it."""
     info = _call("/object_info", timeout=120)
-    graph = build_graph("", 768, 768, 124, 0, ["x.png"], ["x.mp4"], ["x.mp3"], "x", attention)
+    graph = build_graph("", 768, 768, 124, 0, ["x.png"], ["x.mp4"], ["x.mp3"], "x", attention, first_frame=True)
     missing = sorted({n["class_type"] for n in graph.values()} - set(info))
     if missing:
         raise RuntimeError("ComfyUI is missing nodes: " + ", ".join(missing))
@@ -297,8 +304,7 @@ def load() -> None:
     _probe()
     _start_comfy()
     _preflight(s["attention"])
-    print(f"H3 worker ready: attention={s['attention']} sparsity={s['sparsity']} references={s['ref_image_size']} "
-          f"reference_video={'on' if s['reference_video'] else 'off'}", flush=True)
+    print(f"H3 worker ready: attention={s['attention']} sparsity={s['sparsity']} references={s['ref_image_size']}", flush=True)
 
 
 def _ensure_running(attention: str) -> None:
@@ -366,26 +372,27 @@ def generate(request: dict, media: list[dict], workdir: str) -> str:
     _clear_leftovers()
     job = uuid.uuid4().hex[:12]
     staged: list[Path] = []
-    lists: dict[str, list[str]] = {"image_url": [], "video_url": [], "audio_url": []}
+    lists: dict[str, list[str]] = {"first_frame": [], "image_url": [], "video_url": [], "audio_url": []}
     try:
         for m in media:
-            if m["type"] == "video_url" and not s["reference_video"]:
-                continue
             file = f"bl-{job}-{len(staged)}{_extension(m['path'], m['type'])}"
             shutil.copyfile(m["path"], WORK / "input" / file)
             staged.append(WORK / "input" / file)
-            lists[m["type"]].append(file)
+            lists["first_frame" if m.get("role") == "first_frame" else m["type"]].append(file)
         text = next((c.get("text", "") for c in request.get("content", []) if c.get("type") == "text"), "")
+        prompt = to_h3_prompt(text, bool(lists["video_url"]))
+        if lists["first_frame"]:  # the picture is <Picture 1>; the engine sends no other references with it
+            prompt = "<Picture 1> is the first frame of the video; the video starts exactly on it.\n" + prompt
         width, height = canvas(request.get("ratio"), request.get("resolution"))
         length = frame_count(request.get("duration", 5))
         seed = secrets.randbelow(2**63)
-        graph = build_graph(to_h3_prompt(text, bool(lists["video_url"])), width, height, length, seed, lists["image_url"],
+        graph = build_graph(prompt, width, height, length, seed, lists["first_frame"] + lists["image_url"],
                             lists["video_url"], lists["audio_url"], f"backlot/{job}", s["attention"], s["sparsity"],
-                            s["ref_image_size"])
+                            s["ref_image_size"], first_frame=bool(lists["first_frame"]))
         started = time.monotonic()
         print(json.dumps({"h3_job": job, "seed": seed, "size": f"{width}x{height}", "frames": length,
-                          "images": len(lists["image_url"]), "videos": len(lists["video_url"]),
-                          "audios": len(lists["audio_url"])}), flush=True)
+                          "first_frame": bool(lists["first_frame"]), "images": len(lists["image_url"]),
+                          "videos": len(lists["video_url"]), "audios": len(lists["audio_url"])}), flush=True)
         clip = _run(graph, job, s["timeout"])
         out = os.path.join(workdir, "out.mp4")
         shutil.move(clip, out)

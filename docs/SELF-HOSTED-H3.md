@@ -122,7 +122,6 @@ we tune the settings below, or the prompts.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `H3_REFERENCE_VIDEO` | `0` | `1` also sends the previous shot of the scene as a reference, for continuity. Much slower and heavier: reference material is never sped up by sparse attention, and a clip adds about as much work as the shot itself. Try it once the basics look right. |
 | `H3_REF_IMAGE_SIZE` | `match` | `max` gives the model the character and set pictures at full size (better likeness, several times slower). |
 | `H3_SPARSITY` | `0.75` | How much of the video attention is skipped. Lower (0.70, 0.50) is slower and may look better. |
 | `H3_ATTENTION` | `vsa` | `dense` turns sparse attention off (slower). For comparing quality, or if the GPU check fails on `sol_attn`. |
@@ -131,6 +130,13 @@ we tune the settings below, or the prompts.
 | `MODEL_DIR` | `/runpod-volume/h3` | Where the model files are on the volume. |
 
 Changing a setting restarts the workers. Compare settings on the same shot: **Fix this shot** without changing the text.
+
+Two related settings live in **Backlot's** own settings (`engine/.env.local`, Railway variables), not on the endpoint:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `CHAIN_CLIPS` | `auto` | `1` sends each scene's previous shot along as a reference video, for continuity. `auto` does that with MiniMax but not on your own GPUs, where a reference clip makes every shot about twice the work (sparse attention never speeds up reference material). Try `1` once the basics look right. |
+| `CLIP_IMAGE_PROVIDER` | (same as video) | `minimax` sends image-to-video quick clips to MiniMax's hosted H3 instead. On your own GPUs, image-to-video pins the picture as the first frame, which these model files weren't trained for: if those clips look wrong, switch this. |
 
 ## If something goes wrong
 
