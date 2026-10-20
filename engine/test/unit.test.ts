@@ -12,7 +12,7 @@ import { verifyLemonSignature } from '../src/lemonsqueezy.js';
 import { decideWorkersMin } from '../src/capacity.js';
 import { hit } from '../src/ratelimit.js';
 import { mm, resolutionsFor } from '../src/pipeline/render.js';
-import { clipPrompt, normalizeRefs, checkClipForm } from '../src/pipeline/clips.js';
+import { clipPrompt, clipTitle, normalizeRefs, checkClipForm } from '../src/pipeline/clips.js';
 import * as runpodProvider from '../src/providers/runpod.js';
 import { createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -213,6 +213,10 @@ test('quick clips: the customer’s "image 2" and "the voice" become the wording
     { role: 'reference_image', key: 'a', label: 'Maya' }, { role: 'reference_image', key: 'b' }, { role: 'reference_audio', key: 'c', label: 'Maya' }] });
   assert.equal(p, 'References: reference image 1 is Maya.\nMaya speaks with the voice in reference audio 1.\nMaya in reference image 1 shows off the sneaker in reference image 2.');
   assert.match(clipPrompt({ prompt: 'Make it night', inputs: [{ role: 'reference_video', key: 'v' }] }), /^Reference video 1 is the source clip to remix\./);
+  assert.equal(clipTitle('  A red kite\nover the sea  '), 'A red kite over the sea');
+  assert.equal(clipTitle('A slow push-in on a coffee cup steaming on my desk while rain runs down the window of my morning flat'),
+    'A slow push-in on a coffee cup steaming on my desk while…', 'long prompts are cut at a word');
+  assert.equal(clipTitle('x'.repeat(90)).length, 61, 'one long word is cut hard');
 });
 
 test('quick clips: each mode takes exactly the uploads it needs, and uploads need consent', () => {

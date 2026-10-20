@@ -4,6 +4,7 @@ import { AlertTriangle, Check, Download, Loader2, Play, RotateCcw, Wand2 } from 
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ClipView } from "@/components/ClipView";
 import { StudioShell } from "@/components/layout/StudioShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,6 +66,17 @@ function ProjectPage() {
     );
 
   const { project } = data;
+  if (project.mode === "clip" && data.clip)
+    return (
+      <StudioShell>
+        <div className="mb-2">
+          <Link to="/dashboard" className="meta-label hover:text-primary">
+            ← My videos
+          </Link>
+        </div>
+        <ClipView data={data} />
+      </StudioShell>
+    );
   const stage = project.stage;
   const progress = data.jobs.find(
     (j) => j.kind === "project.autopilot" && j.status !== "failed",

@@ -26,6 +26,23 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     },
     body: body === undefined ? null : JSON.stringify(body),
   });
+  return parse<T>(res);
+}
+
+/** A multipart request (file uploads): the browser sets the content type with its boundary. */
+async function callForm<T>(path: string, form: FormData): Promise<T> {
+  const token = devUserId
+    ? `dev:${devUserId}`
+    : (await supabase.auth.getSession()).data.session?.access_token;
+  const res = await fetch(`${ENGINE_URL}/v1${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token ?? ""}` },
+    body: form,
+  });
+  return parse<T>(res);
+}
+
+async function parse<T>(res: Response): Promise<T> {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     // Engine errors are written for end users: show `message` as is.
@@ -62,7 +79,7 @@ export type ProjectSummary = {
   id: string;
   title: string;
   aspect: string;
-  mode: "vibe" | "studio";
+  mode: "vibe" | "studio" | "clip";
   stage: Stage | null;
   stage_error: string | null;
   episodes: number;
@@ -82,13 +99,34 @@ export type Cut = {
   thumb_url: string | null;
 };
 
+export type ClipMode = "text" | "image" | "reference" | "remix";
+
+export const CLIP_MODES: { id: ClipMode; label: string; hint: string }[] = [
+  { id: "text", label: "Text to video", hint: "Describe it, get a clip" },
+  { id: "image", label: "Image to video", hint: "Bring a picture to life" },
+  { id: "reference", label: "Characters & products", hint: "Up to 9 pictures, plus a voice" },
+  { id: "remix", label: "Remix a video", hint: "Restyle it or swap someone in (beta)" },
+];
+
+export type ClipDetail = {
+  mode: ClipMode;
+  prompt: string;
+  seconds: number;
+  aspect: string;
+  shot_id: string;
+  price_usd: number;
+  inputs: { role: string; label: string | null; url: string | null }[];
+  takes: (Take & { created_at: string; finished_at: string | null })[];
+};
+
 export type ProjectDetail = {
+  clip: ClipDetail | null;
   project: {
     id: string;
     title: string;
     aspect: string;
     resolution: string;
-    mode: "vibe" | "studio";
+    mode: "vibe" | "studio" | "clip";
     stage: Stage | null;
     stage_error: string | null;
     brief: { prompt?: string; format?: FormatId; episodes?: number; seconds?: number };
@@ -212,6 +250,84 @@ export type AdminCustomer = {
   }[];
 };
 
+export type Business = {
+  range: { days: number; from: string; to: string };
+  money: {
+    revenue_usd: number;
+    plans_usd: number;
+    topups_usd: number;
+    payments: number;
+    fees_usd: number;
+    net_revenue_usd: number;
+    provider_costs_usd: number;
+    fixed_costs_usd: number;
+    profit_usd: number;
+    margin_pct: number | null;
+    credits_spent_usd: number;
+    refunded_usd: number;
+    credits_outstanding_usd: { plan: number; topup: number };
+  };
+  costs: {
+    providers: { kind: string; usd: number; units: number; events: number; estimated: boolean }[];
+    moderation_usd: number;
+    fixed: { name: string; monthly_usd: number; in_range_usd: number }[];
+    gpu_note: string | null;
+  };
+  customers: {
+    accounts: number;
+    new: number;
+    active: number;
+    paying: number;
+    mrr_usd: number;
+    ended: number;
+    cancelling: number;
+    past_due: number;
+  };
+  usage: {
+    films: number;
+    films_done: number;
+    films_failed: number;
+    clips: number;
+    clips_done: number;
+    clips_failed: number;
+    renders_ok: number;
+    renders_failed: number;
+    renders_refused: number;
+    video_seconds: number;
+    avg_render_seconds: number;
+    video_cost_per_second_usd: number | null;
+    sell_per_second_usd: number;
+  };
+  daily: { day: string; revenue_usd: number; cost_usd: number; signups: number; videos: number }[];
+  problems: {
+    render_errors: { code: string; n: number; latest: string | null }[];
+    job_errors: { kind: string; n: number; latest: string | null }[];
+    failed_projects: {
+      id: string;
+      title: string;
+      mode: string;
+      owner_id: string;
+      email: string | null;
+      stage_error: string | null;
+      updated_at: string;
+    }[];
+  };
+  top_customers: { owner_id: string; email: string | null; cost_usd: number; paid_usd: number }[];
+  health: {
+    video_provider: string;
+    renders_waiting: number;
+    renders_running: number;
+    oldest_render_minutes: number;
+    jobs_ready: number;
+    jobs_running: number;
+    jobs_failed_24h: number;
+    oldest_job_wait_minutes: number;
+    storage_bytes: number;
+    stored_files: number;
+    gpu: { workers?: Record<string, number>; jobs?: Record<string, number>; error?: string } | null;
+  };
+};
+
 export type SetupCheck = {
   area: string;
   name: string;
@@ -235,6 +351,7 @@ export type Me = {
   };
   packs: { id: string; usd: number; available: boolean }[];
   payments_enabled: boolean;
+  clips: { min_seconds: number; max_seconds: number };
 };
 
 export const engine = {
@@ -244,6 +361,7 @@ export const engine = {
   portal: () => call<{ url: string }>("GET", "/billing/portal"),
   admin: {
     overview: () => call<AdminOverview>("GET", "/admin/overview"),
+    business: (days: number) => call<Business>("GET", `/admin/business?days=${days}`),
     customers: (q: string) =>
       call<{ customers: AdminCustomerRow[] }>(
         "GET",
@@ -271,6 +389,10 @@ export const engine = {
     call<{ shots: Shot[] }>("GET", `/episodes/${episodeId}/shots`).then((r) => r.shots),
   fixShot: (shotId: string, note: string) =>
     call<unknown>("POST", `/shots/${shotId}/retake`, { note, recut: true }),
+  createClip: (form: FormData) =>
+    callForm<{ project: { id: string } }>("/clips", form).then((r) => r.project),
+  retakeClip: (id: string, input: { prompt?: string; seconds?: number }) =>
+    call<unknown>("POST", `/clips/${id}/retake`, input),
 };
 
 export const STAGE_LABEL: Record<Stage, string> = {

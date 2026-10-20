@@ -77,6 +77,15 @@ export function normalizeRefs(text: string) {
     .replace(/(?<!reference\s)\b(?:audio|voice)\s*#?\s*(\d)\b/gi, 'reference audio $1');
 }
 
+/** A clip's title: the start of its prompt, cut at a word. */
+export function clipTitle(prompt: string, max = 60) {
+  const text = prompt.replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  const space = text.lastIndexOf(' ', max);
+  const cut = space >= max / 2 ? text.slice(0, space) : text.slice(0, max);
+  return `${cut.replace(/[\s,;:.!?-]+$/, '')}…`;
+}
+
 /** The H3 prompt for a clip: what each reference is, then the customer's words. */
 export function clipPrompt(b: Pick<ClipBrief, 'prompt' | 'inputs'>) {
   const lines: string[] = [];
@@ -172,7 +181,7 @@ export async function createClip(uid: string, f: ClipForm) {
     const verdict = await moderate({ ownerId: uid, text: checkText(brief), images: [...images.map((im) => jpeg(im.small)), ...(video?.frames || []).map(jpeg)] });
     if (!verdict.allowed) throw refusal(verdict);
 
-    const title = prompt.replace(/\s+/g, ' ').slice(0, 80);
+    const title = clipTitle(prompt);
     const shotId = await sql.begin(async (tx) => {
       await tx`insert into projects (id, owner_id, title, format, aspect, resolution, language, mode, stage, brief)
         values (${id}, ${uid}, ${title}, 'clip', ${f.aspect}, '768P', 'English', 'clip', 'rendering', ${tx.json(brief as any)})`;

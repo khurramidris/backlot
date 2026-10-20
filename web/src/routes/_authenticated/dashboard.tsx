@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import heroImage from "@/assets/hero-stage.jpg";
+import { ClipForm } from "@/components/ClipForm";
 import { StudioShell } from "@/components/layout/StudioShell";
 import {
   AlertDialog,
@@ -76,9 +77,10 @@ function Dashboard() {
             </h1>
             <p className="mt-3 max-w-lg text-muted-foreground">
               Describe a story. We write it, cast it, shoot it and cut it. You approve the script
-              and the price before anything is filmed.
+              and the price before anything is filmed. Or make a single clip from a sentence, a
+              picture or a video.
             </p>
-            {me && !canCreate(me) ? <SubscribePanel me={me} /> : <CreateForm me={me} />}
+            {me && !canCreate(me) ? <SubscribePanel me={me} /> : <Creator me={me} />}
           </div>
           <div className="hidden self-end text-right lg:block">
             <p className="meta-label leading-relaxed text-foreground/80">
@@ -121,6 +123,41 @@ function Dashboard() {
   );
 }
 
+/** Story film (the whole pipeline) or a quick clip (one shot from text, a picture or a video). */
+function Creator({ me }: { me: Me | undefined }) {
+  const [kind, setKind] = useState<"story" | "clip">(() =>
+    typeof window !== "undefined" && window.location.hash === "#clip" ? "clip" : "story",
+  );
+  return (
+    <>
+      <div
+        className="mt-6 inline-flex rounded-lg border border-border-strong bg-cinema/80 p-0.5 text-sm backdrop-blur-sm"
+        role="tablist"
+        aria-label="What to make"
+      >
+        {(["story", "clip"] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={kind === k}
+            onClick={() => setKind(k)}
+            className={cn(
+              "rounded-md px-4 py-1.5 transition-colors",
+              kind === k
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {k === "story" ? "Story film" : "Quick clip"}
+          </button>
+        ))}
+      </div>
+      {kind === "story" ? <CreateForm me={me} /> : <ClipForm me={me} />}
+    </>
+  );
+}
+
 function CreateForm({ me }: { me: Me | undefined }) {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
@@ -143,7 +180,7 @@ function CreateForm({ me }: { me: Me | undefined }) {
   return (
     <>
       <form
-        className="mt-6 rounded-lg border border-border-strong bg-cinema/80 p-3 backdrop-blur-sm focus-within:border-primary/70"
+        className="mt-3 rounded-lg border border-border-strong bg-cinema/80 p-3 backdrop-blur-sm focus-within:border-primary/70"
         onSubmit={(e) => {
           e.preventDefault();
           if (prompt.trim().length >= 10) create.mutate();
@@ -337,6 +374,7 @@ function ProjectCard({ p }: { p: ProjectSummary }) {
             </span>
           ) : null}
           <span className="absolute bottom-2 left-2 rounded bg-cinema/75 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80 backdrop-blur-sm">
+            {p.mode === "clip" ? "Clip · " : ""}
             {p.aspect}
           </span>
         </div>
