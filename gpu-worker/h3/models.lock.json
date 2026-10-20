@@ -1,0 +1,75 @@
+{
+  "created_utc": "2026-10-15",
+  "comfy_commit": "5cc4b870094c89090db54bd8d12649dcaf89f2ba",
+  "comfy_version": "source snapshot, GPU-unvalidated",
+  "torch": "2.11.0",
+  "torchvision": "0.26.0",
+  "torchaudio": "2.11.0",
+  "cuda": "cu130",
+  "files": [
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "path": "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "target": "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "size": 20970379616,
+      "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
+    },
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "path": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "target": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "size": 15687142551,
+      "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
+    },
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "path": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "target": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "size": 605254808,
+      "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+    },
+    {
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "path": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "target": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "size": 5207808496,
+      "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
+    },
+    {
+      "repo": "lightx2v/Minimax-h3-Turbo",
+      "revision": "a29e57d195f80ead07c89f89e55ecf2911e893c5",
+      "path": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "target": "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "size": 1956193000,
+      "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+      "nfe": 4
+    },
+    {
+      "repo": "lightx2v/Minimax-h3-Turbo",
+      "revision": "a29e57d195f80ead07c89f89e55ecf2911e893c5",
+      "path": "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+      "target": "loras/minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+      "size": 1956193000,
+      "sha256": "6a56f41ab4229c9dd845b9501bbd475ee57e112d846cf2e819d534a1ae928c5a",
+      "nfe": 8
+    },
+    {
+      "repo": "barelymining/ComfyUI-MiniMax-H3-FastVideo",
+      "revision": "aa554050fe27ec3c62e20e57519beb46741c9000",
+      "path": "fasth3_vsa_gate.safetensors",
+      "target": "loras/fasth3_vsa_gate.safetensors",
+      "size": 3853522616,
+      "sha256": "bf95408e335c4b0d6a1a44946a428a3e12849e6eab2de9566ecedae4a0043420",
+      "role": "vsa_gate"
+    }
+  ],
+  "updated_utc": "2026-10-20",
+  "selected_runtime": "Kablex Ref2VA-VSA with Backlot hardening, four-step LightX2V, INT8, Sol CUDA attention",
+  "comfy_kitchen": "0.2.38",
+  "kablex_commit": "323a0a5f7c636cc70f95464145732f81f04a72e9",
+  "kablex_nodes_sha256": "3df014ae5b6c8d23af84d2c49e57eaa663649bc9931d204b6c17e7955ebfe358"
+}

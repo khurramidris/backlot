@@ -60,6 +60,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: python selftest.py
+      - run: python test_h3.py
 
   image:
     needs: [engine, web]

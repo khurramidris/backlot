@@ -105,6 +105,18 @@ await api(A, 'DELETE', `/v1/projects/${p2.id}`);
 assert.ok(fake.state.cancelled.length > 0, 'running RunPod jobs were cancelled');
 log(`  ✓ ${fake.state.cancelled.length} RunPod job(s) cancelled`);
 
+log('\n5. A render that runs past the time limit is cancelled on RunPod');
+const { config } = await import('../src/config.js');
+config.minimax.taskTimeoutMinutes = 0.05; // 3 seconds; the fake still holds jobs for 2 minutes
+const cancelledBefore = fake.state.cancelled.length;
+await api(A, 'POST', `/v1/shots/${s0.id}/retake`, { prompt: s0.prompt });
+const timedOut = await until('take failed with a timeout', async () => {
+  const [t] = await sql`select * from takes where shot_id = ${s0.id} order by n desc limit 1`;
+  return t.status === 'failed' && t.error_code === 'timeout' && t;
+});
+assert.ok(fake.state.cancelled.slice(cancelledBefore).includes(timedOut.provider_task_id), 'the timed-out RunPod job was cancelled');
+log('  ✓ the GPU stops working on a clip we gave up on');
+
 log('\nALL RUNPOD CHECKS PASSED');
 fake.close();
 process.exit(0);

@@ -64,7 +64,7 @@ shot prompts to `engine/data/eval/<time>/` so you can read them. About $1 to $2 
 
 The engine sends each shot to RunPod as `{"input": {"request": …, "upload": …}}` and expects
 `{"key", "seconds", "width", "height", "has_audio"}` back. The worker that does this is `gpu-worker/handler.py`,
-and the model plugs in at `gpu-worker/backends/h3.py` (still a stub in the repo). If your endpoint runs a
+and the model runs in `gpu-worker/backends/h3.py`. To set up that endpoint, follow `docs/SELF-HOSTED-H3.md`. If your endpoint runs a
 different handler, send me a sample request and response and I will write an adapter.
 
 ## Good to know

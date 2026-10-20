@@ -123,7 +123,11 @@ export async function pollTake(takeId: string): Promise<any | Again> {
   const task = await mm(t.provider).queryVideoTask(t.provider_task_id); // the provider that took the job, not today's setting
   const age = (Date.now() - new Date(t.submitted_at).getTime()) / 60000;
   if (task.status === 'queued' || task.status === 'running' || task.status === 'processing' || task.status === 'preparing') {
-    if (age > config.minimax.taskTimeoutMinutes) { await failTake(takeId, t.shot_id, `H3 task still ${task.status} after ${Math.round(age)} minutes`, 'timeout'); return { timeout: true }; }
+    if (age > config.minimax.taskTimeoutMinutes) {
+      await mm(t.provider).cancelVideoTask?.(t.provider_task_id); // stop paying for GPU time on a clip we've given up on
+      await failTake(takeId, t.shot_id, `H3 task still ${task.status} after ${Math.round(age)} minutes`, 'timeout');
+      return { timeout: true };
+    }
     if (task.status === 'running' && t.status !== 'running') await sql`update takes set status = 'running' where id = ${takeId}`;
     return { again: config.minimax.pollSeconds, progress: `H3 ${task.status} (${Math.round(age * 60)}s)` };
   }

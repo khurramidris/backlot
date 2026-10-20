@@ -2,37 +2,56 @@
 
 Renders one shot per job. The engine sends the H3 request and a signed upload link. The worker renders the
 clip, uploads it straight to our storage and returns its length and size. See `handler.py` for the exact
-contract.
+contract. Step-by-step setup in plain language: `docs/SELF-HOSTED-H3.md`.
 
 | File | What it is |
 |---|---|
 | `handler.py` | RunPod entry point: download references → `backend.generate()` → ffprobe check → upload |
-| `backends/fake.py` | Test-pattern clips at the requested length and shape. Use it to prove the endpoint and scaling before the model is ready |
-| `backends/h3.py` | **Where the H3 inference code goes** (`load()` once per worker, `generate()` per job) |
-| `selftest.py` | `python selftest.py`: runs the handler locally with the fake backend (needs ffmpeg) |
+| `backends/h3.py` | Self-hosted H3: turns the engine's request into a ComfyUI graph and runs it on a private ComfyUI that keeps the models warm |
+| `backends/fake.py` | Test-pattern clips at the requested length and shape. Use it to prove the endpoint and scaling without the model |
+| `h3/models.lock.json` | Pinned ComfyUI and Kablex commits, and every weight file by Hugging Face revision, size and SHA-256 |
+| `h3/install.sh` | Image build step: pinned ComfyUI + the Kablex Ref2VA-VSA node, hardened by `h3/harden_kablex.py` |
+| `h3/download_models.py` | Puts the weights (about 45 GB) on the network volume and verifies them. The worker runs it on first start |
+| `h3/probe.py` | GPU check at start: Torch 2.11 / CUDA 13.0, VRAM, one real call to the Sol sparse-attention kernel |
+| `selftest.py`, `test_h3.py` | CPU tests: the handler with the fake backend, and the H3 backend against a fake ComfyUI (need ffmpeg) |
 
-## Run locally
+## The H3 recipe
+
+From the RunPod test kit (Kablex ComfyUI-Ref2VA-VSA, audited 17–20 October 2026): H3 Ref2VA pruned INT8 + LightX2V
+four-step adapter + FastH3 VSA gates at 75% video sparsity + comfy-kitchen's CUDA Sol attention, on one RTX 5090
+(32 GB). 24 fps on H3's frame grid (5 s asks for 124 frames, about 5.17 s), 768 px short edge, native 32 kHz stereo audio.
+
+The engine's prompts are written for MiniMax's hosted API. `to_h3_prompt()` rewrites them into the open model's tags:
+`reference image 2` → `<Picture 2>`, `reference audio 1` → `<Audio 1>`, `reference video 1` → `<Video 1>`, and
+`says: "…"` → `says: <d>[English]…</d>`.
+
+Not yet run on a real GPU: the first film is the integration test.
+
+## Run the tests
 
 ```bash
-python selftest.py
-pip install -r requirements.txt
-MODEL_BACKEND=fake python handler.py --test_input '{"input": {...}}'   # RunPod SDK local test mode
+python selftest.py     # handler + fake backend
+python test_h3.py      # H3 backend: graph, staging, errors, restarts (fake ComfyUI, no GPU)
 ```
 
 ## Deploy on RunPod
 
-1. Build and push the image: `docker build -t <registry>/backlot-gpu-worker:<tag> gpu-worker`.
-2. **Network volume**: create one in the same region as the endpoint and copy the H3 weights to `/h3` on it.
-   Workers mount it at `/runpod-volume`, so they start without downloading weights.
+1. **Image.** GitHub builds it (`.github/workflows/gpu-image.yml`) and publishes `ghcr.io/<owner>/backlot-gpu-worker` on
+   every change to `main`. Or by hand: `docker build -t <registry>/backlot-gpu-worker:<tag> gpu-worker`.
+2. **Network volume** of 75 GB in a data center with RTX 5090s. The first worker downloads the weights into
+   `/runpod-volume/h3` (or run `python /app/h3/download_models.py --dest /workspace/h3` on a Pod with the volume).
 3. **Serverless endpoint** from the image:
-   - GPU: one that fits H3 in memory (pick after profiling; start with 80 GB cards if unsure).
-   - Env: `MODEL_BACKEND=h3` (or `fake` for a dry run), `MODEL_DIR=/runpod-volume/h3`.
-   - Attach the network volume.
+   - GPU: 32 GB (RTX 5090). **Allowed CUDA versions: 13.0** (the image needs a CUDA 13 driver).
+   - Attach the network volume. No environment variables are required (`MODEL_BACKEND=h3` is the image default;
+     `fake` for a dry run). Optional ones are in `backends/h3.py` and `docs/SELF-HOSTED-H3.md`.
    - Workers: min 0, max = your budget cap (the engine's `RUNPOD_MAX_WORKERS` keeps this in sync).
    - Scaling: **Queue delay**, about 4 s. Idle timeout: 60–120 s. **FlashBoot on.**
    - Execution timeout: 30 min (matches the engine's `RUNPOD_EXECUTION_TIMEOUT_SEC`).
 4. Give the engine `VIDEO_PROVIDER=runpod`, `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, then
    `RUNPOD_MANAGE_SCALING=1` once you've watched a few decisions in `/v1/admin/capacity`.
+
+One job at a time per worker. A worker runs its own ComfyUI on 127.0.0.1 (no credentials in its environment) and
+stops anything a cancelled job left running before it starts the next one.
 
 ## How scaling works
 

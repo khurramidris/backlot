@@ -10,8 +10,8 @@ left is creating accounts, pasting keys into one place (Railway), and checking i
 - **No real money yet.** Lemon Squeezy stays in **test mode**. Testers "pay" with Lemon Squeezy's test card
   (`4242 4242 4242 4242`, any future date, any 3 digits). They get the full product, and nobody is charged.
   Live payments come later, once you've watched real costs for a couple of weeks.
-- **Video comes from MiniMax's hosted H3** (`VIDEO_PROVIDER=minimax`). Our own RunPod GPUs wait until the H3
-  model is wired in.
+- **Video comes from MiniMax's hosted H3** (`VIDEO_PROVIDER=minimax`). Our own H3 on RunPod is wired in but not yet
+  tried on a real GPU: test it yourself first with `docs/SELF-HOSTED-H3.md`, then switch with `VIDEO_PROVIDER=runpod`.
 - **Use Railway's free web address** (like `backlot-production.up.railway.app`) to begin with. A custom domain can
   come later (step 10).
 

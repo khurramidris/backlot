@@ -36,8 +36,8 @@ Everything below is a one-time setup. After it, every push to `main` that passes
 
 ## 2. RunPod (the video model)
 
-Follow `gpu-worker/README.md`:
-1. Build and push the `gpu-worker` image.
+Follow `docs/SELF-HOSTED-H3.md` (plain language) or `gpu-worker/README.md`:
+1. GitHub builds and publishes the `gpu-worker` image (`.github/workflows/gpu-image.yml`).
 2. Put the H3 weights on a network volume.
 3. Create a Serverless endpoint.
    - To prove the whole path before the model is ready, set `MODEL_BACKEND=fake`: it renders test patterns.
