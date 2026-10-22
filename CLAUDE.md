@@ -6,7 +6,7 @@ The founder works with Claude as CTO and the whole engineering team. Ship-orient
 
 ## Current state
 The product is feature-complete for launch: prompt → film, quick clips, Basic subscription ($20/month through Lemon
-Squeezy, monthly plan credit plus top-ups), 50 GB storage quota, content checks, billing and account pages, the
+Squeezy, monthly plan credit plus top-ups), 10 GB of storage per customer (kept until they delete it), content checks, billing and account pages, the
 company dashboard on `/admin`, password reset, and Terms/Privacy drafts. The launch audit and go/no-go list are in
 `docs/LAUNCH.md`. What's left is setting up accounts and inputs only the founder can provide (see "Not done yet").
 Launch good enough, then fix what customers actually hit: don't polish ahead of real use.

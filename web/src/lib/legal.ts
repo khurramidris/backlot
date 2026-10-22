@@ -4,5 +4,5 @@ export const LEGAL = {
   jurisdiction: "[Country / state]",
   address: "[Registered address]",
   email: "[support@your-domain]",
-  updated: "26 September 2026",
+  updated: "22 October 2026",
 };

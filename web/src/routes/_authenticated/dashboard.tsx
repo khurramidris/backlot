@@ -260,7 +260,7 @@ function SubscribePanel({ me }: { me: Me }) {
       <p className="mt-2 text-sm text-muted-foreground">
         The {me.plan.name} plan is {usd(me.plan.price_usd)}/month and includes{" "}
         {usd(me.plan.credits_usd)} of credits every month and {me.plan.storage_gb} GB of storage for
-        your films.
+        your films and clips.
       </p>
       <Button asChild className="mt-5">
         <Link to="/billing">{ended ? "Subscribe again" : "See the plan"}</Link>

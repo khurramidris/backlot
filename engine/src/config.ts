@@ -176,7 +176,7 @@ export const config = {
     name: env.PLAN_NAME || 'Basic',
     priceUsd: num(env.PLAN_PRICE_USD, 20),     // shown to customers; the charge itself is set in Lemon Squeezy
     creditsUsd: num(env.PLAN_CREDITS_USD, 20), // plan credit each billing period, unused credit expires at renewal
-    storageGb: num(env.PLAN_STORAGE_GB, 50),
+    storageGb: num(env.PLAN_STORAGE_GB, 10),
   },
 
   lemonsqueezy: {

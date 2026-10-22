@@ -16,7 +16,7 @@ export let publicPlan: PublicPlan = {
   name: "Basic",
   price_usd: 20,
   credits_usd: 20,
-  storage_gb: 50,
+  storage_gb: 10,
 };
 export function setPublicPlan(plan: PublicPlan | undefined) {
   if (plan) publicPlan = plan;

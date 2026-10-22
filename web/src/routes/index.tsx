@@ -318,7 +318,7 @@ function Pricing() {
           <ul className="mt-6 space-y-3 text-sm">
             {[
               `${usd(plan.credits_usd)} of credits every month`,
-              `${plan.storage_gb} GB of storage for your films`,
+              `${plan.storage_gb} GB of storage for your films and clips`,
               "Quick clips from text, a photo or a video",
               "Top-up credit packs any time, and they never expire",
               "Failed renders refunded automatically",

@@ -95,9 +95,10 @@ How the money works:
 - Creating, rendering, retakes and uploads need an active plan: `active`, `on_trial`, `past_due` (grace while
   Lemon Squeezy retries the card), or `cancelled` until its `ends_at`. When the subscription expires, the rest
   of the plan credit goes too. Top-ups stay.
-- **Storage**: every project file is counted per customer against `PLAN_STORAGE_GB` (50). When a customer is
-  over it, new work is refused with "You're using 50.3 of 50 GB. Delete old videos to make room." Renders
-  already running finish. Deleting a video deletes its files.
+- **Storage**: every project file is counted per customer against `PLAN_STORAGE_GB` (10). Nothing is deleted
+  automatically: files stay until the customer deletes them (on Cloudflare R2, a full 10 GB costs about $0.15 a
+  month). When a customer is over it, new work is refused with "You're using 10.1 of 10 GB. Delete old videos to
+  make room." Renders already running finish. Deleting a video deletes its files.
 - Webhooks are verified (`X-Signature`) and applied once: `payments` rows are keyed `ls:invoice:<id>` and
   `ls:order:<id>`, so Lemon Squeezy's retries never credit twice.
 - **Refunds** issued in the Lemon Squeezy dashboard don't take credit back automatically. If you refund a
