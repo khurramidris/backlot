@@ -20,7 +20,8 @@ left is creating accounts, pasting keys into one place (Railway), and checking i
 |---|---|---|---|
 | 1 | Anthropic account and key (writes the scripts) | you | 10 min |
 | 2 | MiniMax account and key (images, voices, video) | you | 15 min |
-| 3 | Supabase project (sign-in, database, file storage) | you | 30 min |
+| 3 | Supabase project (sign-in, database), free plan | you | 20 min |
+| 3b | Cloudflare R2 (video storage), free up to 10 GB | you | 10 min |
 | 4 | An email sender for sign-in emails (Resend) | you | 15 min |
 | 5 | Lemon Squeezy store in test mode (subscriptions) | you | 30 min |
 | 6 | Railway (runs the site) | you | 20 min |
@@ -29,6 +30,7 @@ left is creating accounts, pasting keys into one place (Railway), and checking i
 | 9 | Your own test film, and look at the costs | you | 30 min |
 | 10 | Legal details on the Terms and Privacy pages | you send me 4 details | 5 min |
 | 11 | Invite testers | you | — |
+| 12 | Last: video on your own GPU (`docs/SELF-HOSTED-H3.md`), then `VIDEO_PROVIDER=runpod` | you, then me | 1–2 h |
 
 Keep a private note open as you go (not in the repo, never in chat logs you share). Each step gives you a
 value to paste into Railway in step 6. The name in `CAPITALS` is the setting's name.
@@ -37,42 +39,56 @@ value to paste into Railway in step 6. The name in `CAPITALS` is the setting's n
 
 ## 1. Anthropic (the AI that writes scripts and plans shots)
 1. Go to **console.anthropic.com** and sign up.
-2. **Billing**: add a card and buy some credit. $50 is plenty for the beta.
+2. **Billing**: add a card and buy some credit. $20 is plenty to set up and test (a film's writing costs $1–3).
 3. **API keys → Create key**. Name it "backlot". Copy it.
    - Save as `ANTHROPIC_API_KEY`.
 
 ## 2. MiniMax (cast and set images, voices, and the video itself)
 1. Go to **minimax.io**, open the **API platform**, and sign up.
-2. Add balance (top up). Video is the main cost, so start with $50–100 and watch it.
+2. Add balance (top up). $20 is enough: MiniMax makes the cast and set pictures and the voices, and the video only
+   for your few test films, until your own GPU on RunPod takes over at the very end.
 3. Create an **API key** and copy it.
    - Save as `MINIMAX_API_KEY`.
    - If your account is on the China site (minimaxi.com), also save `MINIMAX_BASE_URL=https://api.minimaxi.com`.
 4. Also save `VIDEO_PROVIDER=minimax`.
 
-## 3. Supabase (sign-in, database, file storage)
+## 3. Supabase (sign-in and the database)
 1. Go to **supabase.com** → **New project**.
    - Pick the region closest to your customers.
    - Save the database password somewhere safe.
-   - Choose the **Pro plan ($25/month)**. The free plan only stores 1 GB of files, which a few videos use up.
+   - The **Free plan** is enough: Supabase only signs people in and holds the database. Videos go to Cloudflare R2
+     (step 3b), which is free up to 10 GB. A free project pauses after a week with nobody using it; **Restore**
+     it from the dashboard. Upgrade to Pro ($25/month) once you have customers.
 2. **Project Settings → API**: copy the **Project URL** and the **anon / publishable key**.
    - Save as `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
 3. **Connect** (top bar) → **Session pooler**: copy the connection string, and put your database password into
    it where it says `[YOUR-PASSWORD]`.
    - Save as `DATABASE_URL`.
-4. **Storage → New bucket**: name it `backlot` and leave it **private** (not public).
-5. **Storage → S3 connection** (Project Settings → Storage): copy the **endpoint** and the **region**, then
-   **New access key** and copy both keys.
-   - Save as `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`.
-   - Also save `S3_BUCKET=backlot` and `STORAGE_DRIVER=s3`.
-6. **Authentication → Sign In / Providers**: Email is on. Make sure **Confirm email** is on too.
+4. **Authentication → Sign In / Providers**: Email is on. Make sure **Confirm email** is on too.
    - Google sign-in is optional. You can skip it for the beta.
    - If you want it, you'll need a Google Cloud OAuth client; `docs/DEPLOY.md` step 1 covers it.
-7. **Authentication → URL Configuration** (fill in after step 6, once you have the Railway address):
+5. **Authentication → URL Configuration** (fill in after step 6, once you have the Railway address):
    - **Site URL:** `https://<your-railway-address>`
    - **Redirect URLs**, add all three:
      - `https://<your-railway-address>/dashboard`
      - `https://<your-railway-address>/reset-password`
      - `https://<your-railway-address>/account`
+
+## 3b. Cloudflare R2 (where the videos are kept)
+Free up to 10 GB, then about $0.015 per GB a month. Unlike most storage, it never charges when customers watch or
+download their videos.
+1. Go to **dash.cloudflare.com** and sign up. Open **R2 Object Storage** and enable it (it asks for a card, but the
+   free tier costs nothing).
+2. **Create bucket**: name it `backlot`, location **Automatic**. Leave public access **off**.
+3. Note your **Account ID** (on the R2 overview page).
+   - Save `S3_ENDPOINT=https://<account id>.r2.cloudflarestorage.com`, `S3_REGION=auto`, `S3_BUCKET=backlot` and
+     `STORAGE_DRIVER=s3`.
+4. **Manage R2 API tokens → Create API token**: permission **Object Read & Write**, limited to the `backlot`
+   bucket. Copy the **Access Key ID** and **Secret Access Key** (the secret is shown once).
+   - Save as `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`.
+
+(Prefer Supabase Storage instead? On Supabase Pro: **Storage → New bucket** `backlot` (private), then
+**Project Settings → Storage → S3 connection** for the endpoint, region and a new access key.)
 
 ## 4. Email sender (so sign-up and password emails actually arrive)
 Supabase's built-in email only sends a few messages an hour, so testers would get stuck.
@@ -112,7 +128,7 @@ Supabase's built-in email only sends a few messages an hour, so testers would ge
    or crashes: that's expected, because the settings aren't there yet.
 3. Open the service → **Settings → Networking → Generate Domain**. This is your address
    (e.g. `backlot-production.up.railway.app`).
-   - Now go back and finish Supabase step 3.7 and the Lemon Squeezy webhook URL (5.6).
+   - Now go back and finish Supabase step 3.5 and the Lemon Squeezy webhook URL (5.6).
 4. Open **Variables → Raw Editor** and paste everything you saved, plus these:
    ```
    NODE_ENV=production
@@ -161,7 +177,7 @@ Supabase's built-in email only sends a few messages an hour, so testers would ge
 2. **Domain (optional for beta):** buy one (e.g. at Cloudflare or Namecheap). In Railway → Settings →
    Networking → Custom Domain, add it and follow the DNS instructions. Then:
    - Change `PUBLIC_BASE_URL`, `APP_URL` and `CORS_ORIGINS` to the new address.
-   - Update the Supabase Site URL and Redirect URLs (3.7) and the Lemon Squeezy webhook URL (5.6).
+   - Update the Supabase Site URL and Redirect URLs (3.5) and the Lemon Squeezy webhook URL (5.6).
    - Run the Setup check again.
 
 ## 10b. Error alerts (optional, 10 minutes, recommended)
@@ -199,8 +215,10 @@ Also keep an eye on the MiniMax balance, and send me anything that looks wrong.
 4. Run the Setup check: the webhook line turns from amber ("test mode") to green ("live mode").
 
 ## Monthly running costs during the beta (rough)
-- **Railway:** $5–20
-- **Supabase Pro:** $25
-- **Resend:** free
+- **Railway:** $5 (Hobby plan, includes $5 of use), more as traffic grows
+- **Supabase:** free (Pro, $25, once you have customers)
+- **Cloudflare R2:** free up to 10 GB of videos
+- **Resend:** free. A domain for the sender address is about $10 a year.
 - **Lemon Squeezy:** no monthly fee (a cut of each real sale later)
-- **Anthropic and MiniMax:** pay per use. Video is the big one; you'll see the real per-film cost in step 9.
+- **Anthropic and MiniMax:** pay per use. You'll see the real per-film cost in step 9.
+- **RunPod (the last step):** about $5 a month for the model's storage, plus GPU seconds while rendering.
