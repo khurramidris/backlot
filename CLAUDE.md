@@ -74,3 +74,4 @@ FFmpeg and an automatic cloudflared tunnel for RunPod. See `docs/DESKTOP.md`; ch
 - Production accounts (Supabase, Railway, MiniMax, Lemon Squeezy): the founder follows `docs/BETA.md`. Admins see
   a live Setup check at `/setup` (`engine/src/preflight.ts`, also `npm --prefix engine run preflight`).
 - The legal entity details in `web/src/lib/legal.ts`, and a lawyer's review of `/terms` and `/privacy`.
+- The public developer API (pay-as-you-go keys, `/api/v1`, webhooks): planned in `docs/API.md`, not built yet.
