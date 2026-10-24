@@ -89,9 +89,10 @@ export async function preflight(): Promise<Check[]> {
   });
 
   // ── AI ──
+  const models = [...new Set([config.anthropic.model, config.anthropic.fastModel, ...Object.values(config.anthropic.models)])];
   await run('AI writing (Anthropic)', `Model ${config.anthropic.model}`, async () => {
     if (!config.anthropic.apiKey) return ['fail', 'Set ANTHROPIC_API_KEY (console.anthropic.com → API keys).'];
-    for (const model of [config.anthropic.model, config.anthropic.fastModel]) {
+    for (const model of models) {
       const r = await fetch(`${config.anthropic.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': config.anthropic.apiKey, 'anthropic-version': '2023-06-01' },
@@ -99,10 +100,10 @@ export async function preflight(): Promise<Check[]> {
       });
       if (!r.ok) {
         const t = (await r.text()).slice(0, 200);
-        return ['fail', r.status === 401 ? 'The API key is wrong.' : r.status === 404 ? `Model "${model}" not found: check CLAUDE_MODEL / CLAUDE_FAST_MODEL.` : `Anthropic answered ${r.status}: ${t}. If it mentions credit, add credit in the Anthropic console.`];
+        return ['fail', r.status === 401 ? 'The API key is wrong.' : r.status === 404 ? `Model "${model}" not found: check CLAUDE_MODEL / CLAUDE_FAST_MODEL / CLAUDE_MODELS.` : `Anthropic answered ${r.status}: ${t}. If it mentions credit, add credit in the Anthropic console.`];
       }
     }
-    return ['ok', `Key works for ${config.anthropic.model} and ${config.anthropic.fastModel}.`];
+    return ['ok', `Key works for ${models.join(', ')}.`];
   });
 
   const needsMinimax = config.images.provider === 'minimax' || config.videoProvider === 'minimax';

@@ -17,9 +17,14 @@ const snake = (s: any) => up(s).replace(/['’]/g, '').replace(/[^A-Z0-9]+/g, '_
 const PROP_WORDS = ['ledger', 'phone', 'note', 'letter', 'ring', 'key', 'photo', 'photograph', 'bag', 'knife', 'gun', 'envelope', 'prescription', 'notebook', 'laptop', 'watch', 'necklace', 'file', 'pen', 'pencil', 'box', 'bottle', 'pill', 'card', 'diary'];
 
 export function mockClaudeJSON(task: string, input: any): any {
-  if (task === 'develop') return mockDevelop(input);
-  if (task === 'write' || task === 'screenplay') return mockWrite(input);
-  if (task === 'doctor') return { ...input.draft, notes: input.checks?.length ? ['tightened the flagged lines'] : [] };
+  if (task === 'pitch') return mockPitch(input);
+  if (task === 'choose') return { scores: (input.concepts || []).map((_: any, i: number) => ({ concept: i, fidelity: 5, hook: i === 1 ? 5 : 3, stakes: 4, specificity: 4, surprise: i === 1 ? 4 : 3, renderable: 5 })), chosen: 1, notes: ['make the envelope the first thing we see'] };
+  if (task === 'bible') return mockBible(input);
+  if (task === 'rename') return { names: (input.rename || []).map((r: any, i: number) => ({ id: r.id, name: ['Rukhsana Rahman', 'Tomasz Carter', 'Ifeoma Bello', 'Matteo Rossi'][i % 4] })) };
+  if (task === 'outline') return mockOutline(input);
+  if (task === 'scene') return mockScene(input);
+  if (task === 'critique') return mockCritique(input);
+  if (task === 'judge') return { verdicts: (input.pairs || []).map((p: any, i: number) => ({ pair: i + 1, better: p.b.length > p.a.length ? 'B' : 'A', margin: 'clear' })) };
   if (task === 'direct') return mockDirect(input);
   if (task === 'breakdown') return mockBreakdown(input);
   if (task === 'shots') return mockShots(input);
@@ -31,25 +36,95 @@ export function mockClaudeJSON(task: string, input: any): any {
   return {};
 }
 
-/** Three takes and a treatment that match the mock screenplay below (same ids and sets). */
-function mockDevelop(input: any) {
+// The mock writers' room: a small, valid two-character, two-set story around the customer's idea, written through
+// every step (pitch, choose, bible with names to recast, cards, scenes to budget, notes, one rewrite, judged drafts).
+
+function mockPitch(input: any) {
   const idea = String(input.prompt || 'A story').replace(/\s+/g, ' ').trim();
-  const concept = (n: number) => ({ title: `${idea.slice(0, 30)} (${n})`, logline: idea.slice(0, 120), engine: 'a secret', ending: 'the truth comes out', fresh_because: `take ${n}` });
+  const take = (n: number) => ({ title: `${idea.slice(0, 30)} (${n + 1})`, protagonist: 'a woman who left home', logline: idea.slice(0, 120), world: 'a quiet city neighbourhood, present day',
+    engine: 'a secret', hook: 'a phone buzzing face down by the stove', turn: 'he has read the letter', ending: 'the truth comes out', fresh_because: `take ${n + 1}` });
+  return { concepts: [take(0), take(1), take(2)] };
+}
+
+function mockBible(input: any) {
+  const idea = String(input.prompt || 'A story').replace(/\s+/g, ' ').trim();
   const eps = input.episodes || 1;
   return {
-    concepts: [concept(1), concept(2), concept(3)], chosen: 0,
-    treatment: {
-      title: idea.slice(0, 40), logline: idea.slice(0, 120), genre: 'drama', tone: 'intimate, tense', theme: 'the cost of keeping a secret',
-      dramatic_question: 'Will she tell him the truth?',
-      world: { place: 'a quiet city neighbourhood', era: 'present day', social_world: 'working families', sensory_palette: ['steam from a pot', 'a buzzing streetlight', 'worn linoleum'] },
-      characters: [
-        { id: 'MAYA', name: 'Maya Rahman', age: '31', role: 'lead', want: 'to keep her past buried', obstacle: 'Leo', secret: 'why she left', arc: 'from hiding to honesty', voice: { manner: 'guarded', vocabulary: 'plain', rhythm: 'short sentences', never_says: 'sorry' }, look: 'slim, black hair, grey cardigan' },
-        { id: 'LEO', name: 'Leo Carter', age: '34', role: 'lead', want: 'the truth', obstacle: 'her silence', secret: 'he read the letter', arc: 'from anger to understanding', voice: { manner: 'earnest', vocabulary: 'simple', rhythm: 'halting', never_says: 'goodbye' }, look: 'tall, stubble, navy coat' },
-      ],
-      sets: [{ name: 'KITCHEN', description: 'a small warm kitchen', story_function: 'her refuge' }, { name: 'STREET', description: 'a quiet street at night', story_function: 'his approach' }],
-      episodes: Array.from({ length: eps }, (_, i) => ({ number: i + 1, title: `Part ${i + 1}`, beats: [{ beat: 'She ignores a call', set: 'KITCHEN', characters: ['MAYA'], turn: 'tension' }, { beat: 'He arrives with the letter', set: 'KITCHEN', characters: ['MAYA', 'LEO'], turn: 'confrontation' }], ending: 'Then you know why I left.' })),
-      motifs: ['the envelope'], avoid: ['a tearful reconciliation'],
-    },
+    title: idea.slice(0, 40), logline: idea.slice(0, 120), genre: 'drama', tone: 'intimate, tense', theme: 'the cost of keeping a secret',
+    dramatic_question: 'Will she tell him the truth?',
+    world: { place: 'a quiet city neighbourhood', era: 'present day', social_world: 'working families', sensory_palette: ['steam from a pot', 'a buzzing streetlight', 'worn linoleum'] },
+    characters: [
+      { id: 'MAYA', name: 'Maya Rahman', age: '31', role: 'lead', want: 'to keep her past buried', obstacle: 'Leo', secret: 'why she left', arc: 'from hiding to honesty',
+        voice: { manner: 'guarded', vocabulary: 'plain', rhythm: 'short sentences', habit: 'answers a question with a question', never_says: 'sorry', sample_lines: ['Not tonight.', 'Who told you that?'] }, look: 'slim, black hair, grey cardigan' },
+      { id: 'LEO', name: 'Leo Carter', age: '34', role: 'lead', want: 'the truth', obstacle: 'her silence', secret: 'he read the letter', arc: 'from anger to understanding',
+        voice: { manner: 'earnest', vocabulary: 'simple', rhythm: 'halting', habit: 'repeats the last word he heard', never_says: 'goodbye', sample_lines: ['I waited.', 'Then say it.'] }, look: 'tall, stubble, navy coat' },
+    ],
+    relationships: [{ between: 'MAYA & LEO', dynamic: 'they loved each other; she left without a word' }],
+    sets: [{ name: 'KITCHEN', description: 'a small warm kitchen', story_function: 'her refuge' }, { name: 'STREET', description: 'a quiet street at night', story_function: 'his approach' }],
+    plants: [{ id: 'P1', setup: 'the envelope in his hands', payoff: 'the envelope opened between them' }],
+    episodes: Array.from({ length: eps }, (_, i) => ({ number: i + 1, title: `Part ${i + 1}`, summary: 'He comes back with the letter.', opening: 'her phone buzzing by the stove', ending: 'Then you know why I left.' })),
+    motifs: ['the envelope'], avoid: ['a tearful reconciliation'],
+    style: { look: 'intimate drama', camera: 'handheld, 35mm', lighting: 'warm practicals', grade: 'soft teal and amber', palette: 'amber, teal, grey', texture: 'fine grain', negative: '' },
+  };
+}
+
+const CARDS = [
+  { set: 0, who: [0], purpose: 'She hides from the call', wants: ['to keep tonight ordinary'], tactic: ['stays busy'], turn: 'the phone will not stop', value: 'calm → cornered', key_image: 'the phone buzzing face down by the stove', exit: 'she switches the phone off' },
+  { set: 1, who: [1], purpose: 'He waits with the envelope', wants: ['the courage to knock'], tactic: ['waits'], turn: 'he crosses the street', value: 'doubt → resolve', key_image: 'the envelope turning in his hands', exit: 'he crosses toward her door' },
+  { set: 0, who: [0, 1], purpose: 'The truth comes out', wants: ['him gone', 'the truth'], tactic: ['deflects', 'waits her out'], turn: 'she admits why she left', value: 'hidden → exposed', key_image: 'the envelope between them', exit: 'Then you know why I left.' },
+];
+
+function mockOutline(input: any) {
+  const ids = (input.bible?.characters || []).map((c: any) => c.id), sets = (input.bible?.sets || []).map((s: any) => s.name);
+  const n = Math.max(3, input.range?.[0] || 3);
+  return {
+    scenes: Array.from({ length: n }, (_, i) => {
+      const t = CARDS[i === n - 1 ? 2 : i % 2];
+      return {
+        set: sets[t.set] || 'KITCHEN', int_ext: t.set ? 'EXT' : 'INT', time: 'NIGHT', characters: t.who.map((w) => ids[w]), seconds: 20,
+        purpose: t.purpose, objectives: t.who.map((w, j) => ({ who: ids[w], wants: t.wants[j], tactic: t.tactic[j] })),
+        subtext: 'neither will say what they came to say', turn: t.turn, value: t.value, key_image: t.key_image, exit: t.exit,
+        plants: i === 0 ? ['P1'] : [], payoffs: i === n - 1 ? ['P1'] : [],
+      };
+    }),
+  };
+}
+
+const ACTIONS = ['%s stirs a pot. Her phone buzzes on the counter, face down.', 'Steam fogs the window above the sink.', 'The streetlight outside buzzes and flickers.',
+  '%s turns a small envelope over in his hands.', 'A door opens. Cold air lifts the curtain.', 'The spoon stops against the rim of the pot.'];
+const LINES = ['Not tonight.', 'Please, not tonight.', 'She has to hear it from me.', 'I found the letter.', 'Then you know why I left.', 'The kettle is still warm.', 'You kept the key.', 'Say it to my face.'];
+
+/** A scene sized to its card's budget, so the mock exercises the same checks as a real one. */
+function mockScene(input: any) {
+  const card = input.card || {}, secs = Math.max(4, card.seconds || 12);
+  const dialogue = Math.round(secs * 0.6 * 2.4), action = Math.round((secs * 0.4) / 0.32);
+  const nActions = Math.max(1, Math.round(action / 12));
+  const who: string[] = card.characters || [];
+  const elements: any[] = [];
+  let ai = (input.k || 0) * 2, li = (input.k || 0) * 3, said = 0;
+  for (let a = 0; a < nActions; a++) {
+    const text: string[] = [];
+    while (text.join(' ').split(' ').length < action / nActions - 4) text.push(ACTIONS[ai++ % ACTIONS.length].replace('%s', who[ai % Math.max(1, who.length)] || 'Someone'));
+    elements.push({ kind: 'action', who: '', paren: '', text: text.join(' ') || 'The room is still.' });
+    while (who.length && said < (dialogue * (a + 1)) / nActions) {
+      const line = LINES[li % LINES.length];
+      elements.push({ kind: 'line', who: who[li % who.length], paren: '', text: line });
+      said += line.split(' ').length; li++;
+    }
+  }
+  if (input.notes?.length) elements.push({ kind: 'action', who: '', paren: '', text: 'The envelope lies open between them.' });
+  if (input.variant) elements.push({ kind: 'action', who: '', paren: '', text: 'Nobody moves.' });
+  return { elements };
+}
+
+function mockCritique(input: any) {
+  const outline: any[][] = input.outline || [];
+  return {
+    scores: { hook: 4, turns: 4, escalation: 3, dialogue: 3, specificity: 3, ending: 4, fidelity: 5 },
+    scenes: outline.flatMap((cards, e) => cards.map((_, k) => ({
+      episode: e + 1, scene: k + 1, verdict: e === 0 && k === cards.length - 1 ? 'revise' : 'keep',
+      notes: e === 0 && k === cards.length - 1 ? [{ problem: 'the ending trails off on talk', fix: 'land it on the envelope' }] : [],
+    }))),
   };
 }
 
@@ -63,45 +138,6 @@ function mockDirect(input: any) {
       key_image: `the key image of scene ${s.idx}`, camera: 'handheld, close', light: 'warm practicals', blocking: 'she holds frame left',
       opening_image: `scene ${s.idx} opens`, closing_image: `scene ${s.idx} closes`, shots: 2,
     })),
-  };
-}
-
-/** A small, valid two-set, two-character production built around the customer's idea. */
-function mockWrite(input: any) {
-  const idea = String(input.prompt || 'A story').replace(/\s+/g, ' ').trim();
-  const episode = (n: number) => `INT. KITCHEN - NIGHT
-
-MAYA stirs a pot. Her phone buzzes on the counter. She ignores it.
-
-MAYA
-Not tonight. Please, not tonight.
-
-EXT. STREET - NIGHT
-
-LEO waits under a streetlight, turning a small envelope in his hands.
-
-LEO
-She has to hear it from me. Episode ${n}.
-
-INT. KITCHEN - NIGHT
-
-The door opens. LEO steps in. MAYA freezes, the spoon still in her hand.
-
-LEO
-I found the letter.
-
-MAYA
-Then you know why I left.`;
-  return {
-    title: idea.slice(0, 40),
-    logline: idea.slice(0, 120),
-    world: 'A quiet city neighbourhood, present day.',
-    style: { look: 'intimate drama', camera: 'handheld, 35mm', lighting: 'warm practicals', grade: 'soft teal and amber', negative: '' },
-    characters: [
-      { id: 'MAYA', name: 'Maya Rahman', age: '31', role: 'lead', description: 'Slim woman, shoulder-length black hair, tired eyes, grey cardigan.', voice: 'Low, warm, guarded.' },
-      { id: 'LEO', name: 'Leo Carter', age: '34', role: 'lead', description: 'Tall man, short brown hair, stubble, navy coat.', voice: 'Soft, earnest, slightly hoarse.' },
-    ],
-    episodes: Array.from({ length: input.episodes || 1 }, (_, i) => ({ title: `Part ${i + 1}`, script: episode(i + 1) })),
   };
 }
 

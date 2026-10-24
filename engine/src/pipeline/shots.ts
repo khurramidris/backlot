@@ -7,10 +7,11 @@ import { PermanentError, type JobCtx } from '../queue.js';
 import { claudeJSON, llmCost, llmUnits } from '../providers/claude.js';
 import { config } from '../config.js';
 import { recordUsage } from '../usage.js';
-import { dialogueOf, parseFountain } from './fountain.js';
+import { dialogueOf, parseFountain, words } from './fountain.js';
 import { SHOTS_SYSTEM, shotsPrompt, RETAKE_SYSTEM, retakePrompt, DIRECT_SYSTEM, directPrompt } from './prompts.js';
 import { DirectionSchema, ShotsSchema, RetakeSchema, type Direction } from './schemas.js';
 import { exemplarsFor, sceneTags } from './exemplars.js';
+import { inParallel } from './story.js';
 import { compileShot, fitBeats, H3, speechSeconds, type Beat, type ShotPlan, type CompileAsset, type CompileInput } from './compiler.js';
 
 const up = (s: any) => String(s || '').toUpperCase().trim();
@@ -182,27 +183,56 @@ export function compileInputFor(shot: { plan: ShotPlan }, scene: any, project: a
 /** Action paragraphs of a scene, in order: what the shot plan must show. */
 export const actionLines = (body: string) => parseFountain(body).filter((e) => e.t === 'action').map((e) => e.text.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
-/** Run tasks with at most `n` in flight, keeping results in order. */
-async function inParallel<T, R>(items: T[], n: number, fn: (x: T, i: number) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
-  }));
-  return out;
+/** The writers' card for a scene, while the script still matches what was boarded (an edited script may not). */
+export function cardFor(p: any, episodeIdx: number, sc: { idx: number; heading: string }) {
+  const card = (p?.story_bible?.outline || []).find((o: any) => +o.episode === +episodeIdx)?.scenes?.[sc.idx - 1];
+  return card && norm(card.heading) === norm(sc.heading) ? card : null;
+}
+
+/**
+ * A timing-safe starting coverage for a scene, made in code: its moments in order (each action paragraph, each line,
+ * numbered as in the planner's lists), grouped into beats and shots that H3 can hold. A short action followed by a
+ * line shares a beat when both fit its 6 seconds. The planner is free to re-cut it; what it guarantees is that a weaker model starts from sound timing.
+ */
+export function coverage(body: string, bible: { id: string; name?: string }[] = []): string[] {
+  const lines = dialogueOf(body, bible as any);
+  const moments: { label: string; secs: number; kind: 'action' | 'line' }[] = [];
+  let a = 0, l = 0, prev = '';
+  for (const e of parseFountain(body)) {
+    if (e.t === 'action') { a++; moments.push({ label: `action ${a}`, kind: 'action', secs: Math.min(5, Math.max(2, words(e.text) * 0.32)) }); }
+    else if (e.t === 'dia' && prev !== 'dia') { // a speech wrapped over several lines is one line, as in dialogueOf
+      const d = lines[l++];
+      if (d) moments.push({ label: `line ${l} ${d.who}`, kind: 'line', secs: speechSeconds(d.line) });
+    }
+    prev = e.t;
+  }
+  const shots: { beats: { labels: string[]; secs: number }[]; secs: number }[] = [];
+  let cur: (typeof shots)[number] = { beats: [], secs: 0 };
+  for (const m of moments) {
+    const last = cur.beats[cur.beats.length - 1];
+    if (m.kind === 'line' && last && last.labels.length === 1 && last.labels[0].startsWith('action') && last.secs + m.secs <= 6 && cur.secs + m.secs <= 12) {
+      last.labels.push(m.label); last.secs += m.secs; cur.secs += m.secs; continue;
+    }
+    if (cur.beats.length && (cur.secs + Math.max(2, m.secs) > 12 || cur.beats.length >= 4)) { shots.push(cur); cur = { beats: [], secs: 0 }; }
+    cur.beats.push({ labels: [m.label], secs: Math.max(2, m.secs) }); cur.secs += Math.max(2, m.secs);
+  }
+  if (cur.beats.length) shots.push(cur);
+  return shots.map((s, i) => `Shot ${i + 1} (about ${Math.max(4, Math.round(s.secs))}s): ${s.beats.map((b) => b.labels.join(' + ')).join(' | ')}`);
 }
 
 /** The director's pass: one plan for the whole episode, so scenes planned in parallel still cut together. */
 async function directEpisode(p: any, ep: any, scenes: any[], A: Awaited<ReturnType<typeof projectAssets>>): Promise<Direction> {
   const [{ n: episodes }] = await sql`select count(*)::int n from episodes where project_id = ${p.id}`;
   const t = p.story_bible?.treatment;
+  const who = (key: string) => (t?.characters || []).find((c: any) => up(c.id) === key);
   const input = {
     title: p.title, format: p.format, aspect: p.aspect, language: p.language, style: p.style, episodes,
     treatment: t ? { tone: t.tone, theme: t.theme, dramatic_question: t.dramatic_question, motifs: t.motifs } : null,
+    palette: t?.world?.sensory_palette || [],
     episode: { idx: ep.idx, title: ep.title },
     sets: A.rows.filter((r: any) => r.kind === 'location' && !r.meta?.unused).map((r: any) => ({ key: r.key, name: r.name, description: String(r.description).slice(0, 240) })),
-    characters: A.rows.filter((r: any) => r.kind === 'character' && !r.meta?.unused).map((r: any) => ({ key: r.key, name: r.name })),
-    scenes: scenes.map((sc: any) => ({ idx: sc.idx, heading: sc.heading, body: sc.body, est_seconds: sc.est_seconds })),
+    characters: A.rows.filter((r: any) => r.kind === 'character' && !r.meta?.unused).map((r: any) => ({ key: r.key, name: r.name, want: who(r.key)?.want || '', secret: who(r.key)?.secret || '' })),
+    scenes: scenes.map((sc: any) => ({ idx: sc.idx, heading: sc.heading, body: sc.body, est_seconds: sc.est_seconds, card: cardFor(p, ep.idx, sc) })),
   };
   const r = await claudeJSON<Direction>({ task: 'direct', system: DIRECT_SYSTEM, prompt: directPrompt(input), input, schema: DirectionSchema, effort: config.anthropic.effort, maxTokens: 32000 });
   await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref: `direct:${ep.id}` });
@@ -239,8 +269,9 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
     const tags = sceneTags(sc.body, { lines: dialogue.length, first: k === 0, last: k === scenes.length - 1 });
     const input = {
       title: p.title, format: p.format, aspect: p.aspect, language: p.language, style: p.style,
+      palette: p.story_bible?.treatment?.world?.sensory_palette || [],
       episode: { idx: ep.idx, title: ep.title }, approach: direction.visual_approach,
-      direction: dirOf(sc.idx),
+      direction: dirOf(sc.idx), card: cardFor(p, ep.idx, sc), coverage: coverage(sc.body, bible),
       prev: k ? scenes[k - 1].heading : '', prevClosing: k ? dirOf(scenes[k - 1].idx)?.closing_image || '' : '',
       next: scenes[k + 1]?.heading || '', nextOpening: scenes[k + 1] ? dirOf(scenes[k + 1].idx)?.opening_image || '' : '',
       set: setRow ? { key: setRow.key, name: setRow.name, description: master ? `${master.description} Now: ${setRow.description}` : setRow.description, layout: (master || setRow).meta?.layout } : null,

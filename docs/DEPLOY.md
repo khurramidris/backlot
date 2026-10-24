@@ -142,6 +142,17 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
     ledger, plus credit grants and deductions (with a note; top-up bucket; ledger reasons
     `admin_grant` / `admin_deduct`)
 - **Setup check** (`/setup`) tests every production setting and service.
+- **Story engine** (how it works and how to judge a change: `docs/STORY-ENGINE.md`):
+
+  | Variable | Start with | Meaning |
+  |---|---|---|
+  | `CLAUDE_MODEL` | `claude-opus-5-5` | Every writing and planning step |
+  | `CLAUDE_MODELS` | empty | Per-step models, e.g. `scene:claude-sonnet-5-5,judge:claude-sonnet-5-5,shots:claude-sonnet-5-5` |
+  | `STORY_EFFORT` / `PLANNING_EFFORT` | `high` / `medium` | Thinking depth for the story steps / the many shot and judge calls |
+  | `SCRIPT_DOCTOR` | 1 | The script editor's notes and the rewrites of the scenes it flags |
+  | `KEY_SCENE_DRAFTS` | 2 | Drafts of each episode's opening and ending; a judge keeps the best (1 = off) |
+  | `CLAUDE_STRUCTURED_OUTPUTS` / `CLAUDE_THINKING` | 1 / 1 | Set 0 for a model or endpoint without them |
+  | `PROMPT_LOG_DIR` | unset | Write every prompt to this folder, to read exactly what the model was sent |
 - **Error alerts:** set `SENTRY_DSN`. It reports API errors (5xx), jobs that fail on their last attempt, and
   unhandled rejections.
 - **Rate limits** are per customer and in memory, per instance:

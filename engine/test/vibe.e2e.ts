@@ -239,7 +239,8 @@ log('  ✓ image regeneration, breakdown and shot rewrites are charged; failures
 log('\n9. Storage quota and deleting a project');
 const dir = join(process.env.STORAGE_DIR!, 'projects', pid);
 assert.ok((await stat(dir)).isDirectory(), 'project files on disk');
-await sql`insert into files (key, project_id, owner_id, bytes) values (${`projects/${pid}/huge.bin`}, ${pid}, ${A}, ${Math.round(50.3 * 1024 ** 3)})`;
+const usedSoFar = (await me(A)).storage.used_bytes; // the film's own files, whatever their size: the total lands at 50.35 GB
+await sql`insert into files (key, project_id, owner_id, bytes) values (${`projects/${pid}/huge.bin`}, ${pid}, ${A}, ${Math.round(50.35 * 1024 ** 3) - usedSoFar})`;
 const full = await api(A, 'POST', '/v1/create', { prompt: 'A lighthouse keeper receives a letter from the future.' }, [402]);
 assert.equal(full.error.code, 'storage_full'); assert.match(full.error.message, /using 50\.3 of 50 GB/);
 await api(A, 'POST', `/v1/shots/${fix.id}/retake`, { note: 'x' }, [402]);

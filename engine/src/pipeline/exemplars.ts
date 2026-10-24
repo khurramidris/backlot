@@ -29,7 +29,7 @@ Shot 3 (5s): 0–5s wide, 24mm, static, low angle: he sits back on the floor, sm
   {
     id: 'arrival-new-place', tags: ['arrival', 'establish'],
     situation: 'A character arrives somewhere unfamiliar or hostile.',
-    plan: `Shot 1 (7s): 0–4s wide, 24mm, static, eye level: the shop at dusk, shutters half down, one tube light inside; she enters frame from the right and stops. 4–7s medium from behind, 35mm, handheld following her through the doorway.
+    plan: `Shot 1 (7s): 0–4s wide, 24mm, static, eye level: the shop at dusk, shutters half down, one fluorescent tube inside; she enters frame from the right and stops. 4–7s medium from behind, 35mm, handheld following her through the doorway.
 Shot 2 (6s): 0–3s POV, 35mm, slow pan left to right across the counter: jars, a ledger, a radio murmuring. 3–6s close-up, 85mm, static: her eyes land on the man behind the counter, who has already been watching her.`,
     principle: 'Establish the place once, completely, then move with the character so the audience enters with her. A POV pan builds the space from her eyes; the reveal that someone was already watching turns arrival into threat.',
   },

@@ -34,9 +34,9 @@ export async function runAutopilot(projectId: string, ctx: JobCtx): Promise<any 
   if (!p || p.mode !== 'vibe') return { skipped: 'not a vibe project' };
   const st = p.autopilot || {};
   switch (p.stage as Stage) {
-    case 'writing': { // develop → screenplay → script doctor, one step per run
+    case 'writing': { // pitch → bible → cards → scenes → notes → rewrites, one step per run
       const step = await writeStep(p.id, ctx);
-      if (!step.done) return again(0, step.progress);
+      if (!step.done) return again(step.wait || 0, step.progress);
       await setStage(p.id, 'breakdown');
       return again(0, 'Script written');
     }
