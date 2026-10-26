@@ -63,7 +63,8 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
 - **Every step is a job** in Postgres (`engine/src/queue.ts`, `FOR UPDATE SKIP LOCKED`). Any number of
   engine instances can share the queue. A worker renews the lease on its running jobs every 30 seconds. A job whose
   worker died (a deploy, a crash) goes back in the queue after 3 minutes, or fails, running its refund hook, once
-  it has used every attempt. On SIGTERM a process takes no new jobs and gives running ones 20 seconds to finish.
+  it has used every attempt. On SIGTERM a process takes no new jobs, gives running ones 20 seconds to finish, then
+  hands the rest straight back to the queue with their attempt returned.
 - **Money:**
   - `engine/src/billing.ts`: two credit buckets on `credit_accounts`. `plan_usd` is the monthly plan credit,
     reset at each paid invoice. `balance_usd` holds top-ups and refunds, which never expire. Plan credit is

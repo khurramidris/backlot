@@ -134,11 +134,18 @@ export function startWorker(concurrency = config.workerConcurrency) {
   };
   loop();
   return {
-    /** Stop taking jobs; resolves when the running ones finish, or after graceMs (the next worker recovers the rest). */
+    /**
+     * Stop taking jobs; resolves when the running ones finish, or after graceMs. Whatever is still running then goes
+     * straight back to the queue with its attempt returned, so the next instance picks it up at once and a deploy never
+     * uses up a job's attempts. Exit right after.
+     */
     stop: async (graceMs = 0) => {
       stopping = true; kick();
       for (const t0 = Date.now(); running > 0 && Date.now() - t0 < graceMs;) await new Promise((r) => setTimeout(r, 200));
       clearInterval(beat);
+      if (running > 0) await sql`update jobs set status = 'queued', attempts = greatest(attempts - 1, 0), locked_at = null, locked_by = null,
+          run_after = now(), updated_at = now() where status = 'running' and locked_by = ${workerId}`
+        .catch((e) => console.error('[worker] could not hand jobs back (they resume once stale)', e.message));
     },
   };
 }

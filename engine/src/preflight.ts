@@ -83,9 +83,16 @@ export async function preflight(): Promise<Check[]> {
   await run('Storage', 'Write, read, delete', async () => {
     const key = `preflight/${Date.now()}.txt`;
     await storage.put(key, Buffer.from('backlot preflight'), 'text/plain');
-    const back = (await storage.get(key)).toString();
-    await storage.del(key);
-    return back === 'backlot preflight' ? ['ok', 'A test file was written, read back and deleted.'] : ['fail', 'The file read back was different.'];
+    try {
+      if ((await storage.get(key)).toString() !== 'backlot preflight') return ['fail', 'The file read back was different.'];
+      // Browsers load every image and video, and MiniMax fetches reference images, through signed links: try one.
+      if (config.storage.driver !== 's3' && !https(config.publicBaseUrl)) return ['ok', 'A test file was written, read back and deleted.'];
+      const r = await fetch(await storage.url(key, 300)).catch(() => null);
+      if (!r?.ok || (await r.text()) !== 'backlot preflight') {
+        return ['fail', `A signed link to the test file didn’t work (${r ? `answer ${r.status}` : 'no answer'}), so videos and images won’t load. Check S3_ENDPOINT and S3_REGION (Cloudflare R2, or Supabase → Storage → S3 connection) and that the bucket exists.`];
+      }
+      return ['ok', 'A test file was written, read back, downloaded through a signed link and deleted.'];
+    } finally { await storage.del(key); }
   });
 
   // ── AI ──

@@ -273,6 +273,19 @@ await new Promise((r) => setTimeout(r, 1500));
 assert.equal((await api(C, 'POST', `/v1/assets/${charC.id}/generate`, {}, [402])).error.code, 'insufficient_credit', 'out of credit: stopped before any work starts');
 log('  ✓ unaffordable work is refused up front, with a clear message');
 
+log('\n10a. "Try again" after casting failed');
+// What a failed casting pass leaves: a main character that still couldn't be designed after its automatic retry.
+const castC = (await api(C, 'GET', `/v1/projects/${pc.id}/assets`)).assets.find((x: any) => x.kind === 'character');
+await sql`update assets set status = 'failed', error = 'image service unavailable' where id = ${castC.id}`;
+await sql`update projects set stage = 'failed', stage_error = '1 of the main characters and sets could not be designed. Please try again.',
+  autopilot = autopilot || ${sql.json({ failed_stage: 'casting', retried_assets: [castC.id] })} where id = ${pc.id}`;
+const beforeRetry = await balance(C);
+assert.equal((await api(C, 'POST', `/v1/projects/${pc.id}/resume`, {})).stage, 'casting');
+await waitStage(C, pc.id, 'ready');
+assert.equal((await api(C, 'GET', `/v1/assets/${castC.id}`)).asset.status, 'approved', 'the failed character was designed again and locked');
+near(await balance(C), beforeRetry, 'nothing charged: the first pass is covered by the setup fee');
+log('  ✓ "Try again" designs the failed character again and returns to the checkpoint');
+
 log('\n10b. Admin console');
 await api(C, 'GET', '/v1/admin/overview', undefined, [404]);
 await api(C, 'GET', `/v1/admin/customers/${C}`, undefined, [404]);

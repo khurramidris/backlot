@@ -29,14 +29,17 @@ Everything below is a one-time setup. After it, every push to `main` that passes
 3. **Project Settings → API**: copy the Project URL → `SUPABASE_URL`, and the anon/publishable key →
    `SUPABASE_ANON_KEY`.
 4. **Connect → Session pooler**: copy the connection string → `DATABASE_URL`. The engine creates its tables on
-   first boot.
+   first boot, and encrypts the connection by itself (an `sslmode` in the URL overrides that).
 5. **Storage**: create a **private** bucket `backlot`. **Storage → S3 connection**: create access keys →
    `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET=backlot`,
    `STORAGE_DRIVER=s3`.
 
-## 2. RunPod (the video model)
+## 2. Video: MiniMax now, RunPod later
 
-Follow `docs/SELF-HOSTED-H3.md` (plain language) or `gpu-worker/README.md`:
+Launch with MiniMax's hosted H3: `VIDEO_PROVIDER=minimax` and `MINIMAX_API_KEY` (the same key makes the cast and set
+images and the voices). There is nothing else to set up.
+
+Then move video to your own GPUs on RunPod. Follow `docs/SELF-HOSTED-H3.md` (plain language) or `gpu-worker/README.md`:
 1. GitHub builds and publishes the `gpu-worker` image (`.github/workflows/gpu-image.yml`).
 2. Put the H3 weights on a network volume.
 3. Create a Serverless endpoint.
@@ -115,8 +118,10 @@ How the money works:
    and `CORS_ORIGINS`.
 4. Deploy. `https://<your-domain>/health` should return `{"ok":true,"mock":false}`.
 
-**Deploying while customers work:** a deploy gives running steps 20 seconds to finish. Anything cut off picks up
-again within about 3 minutes on the new version, so deploying mid-film delays it but loses nothing.
+**Deploying while customers work:** a deploy gives running steps 20 seconds to finish, then hands what's left back to
+the queue, and the new version carries on at once. Railway only waits for this if you give it the time: add the
+variable `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`. Without it, or if an instance is killed outright, the cut-off steps
+are picked up again within about 3 minutes. Either way deploying mid-film delays it but loses nothing.
 
 **Scaling the app itself:** one instance handles the API, the job queue and FFmpeg editing. When editing
 backs up, add replicas. The queue is safe to share between instances. To separate the API from background

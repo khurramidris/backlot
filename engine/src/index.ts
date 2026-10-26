@@ -16,7 +16,7 @@ await startCapacityController();
 const worker = config.runWorker ? startWorker() : null;
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (i) => console.log(`[api] listening on :${i.port}${config.mock ? ' (MOCK PROVIDERS)' : ''}`));
 // A deploy stops this process: take no new work, give running jobs a moment to finish. Anything still running is
-// picked up again by the next instance within a few minutes.
+// handed back to the queue for the next instance.
 for (const s of ['SIGINT', 'SIGTERM'] as const) process.once(s, async () => {
   console.log(`[api] ${s}: stopping`);
   server.close();

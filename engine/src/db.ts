@@ -4,7 +4,12 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 
+// postgres.js connects in plain text unless told otherwise, and Supabase's connection string has no sslmode. A database
+// on another machine is encrypted whenever the server offers TLS (libpq's default, 'prefer'); an sslmode in the URL wins.
+const remote = !/@(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//.test(config.databaseUrl) && !/[?&](sslmode|ssl)=/i.test(config.databaseUrl);
+
 export const sql = postgres(config.databaseUrl, {
+  ...(remote ? { ssl: 'prefer' as const } : {}),
   max: 10,
   idle_timeout: 30,
   onnotice: () => {},
