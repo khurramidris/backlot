@@ -109,8 +109,8 @@ async function rendering(p: any, st: any): Promise<any> {
         throw e;
       }
     }
-    await patchState(p.id, { render_queued: true });
-    return again(10, `Rendering ${todo.length} shots`);
+    await patchState(p.id, { render_queued: true }); // they render in story order (render.ts), so finished ones can be watched
+    return again(10, `Filming ${todo.length} shots`);
   }
 
   // The customer reviews the finished film, not every clip: the newest good take of each shot is used.
@@ -131,7 +131,7 @@ async function rendering(p: any, st: any): Promise<any> {
 
   const busy = shots.filter((s: any) => s.status === 'queued' || s.status === 'rendering').length;
   const done = shots.filter((s: any) => s.status === 'approved').length;
-  if (busy) return again(10, `Rendered ${done} of ${shots.length} shots`);
+  if (busy) return again(10, `Filmed ${done} of ${shots.length} shots`);
   await setStage(p.id, 'assembling', { cuts: null });
   return again(0, 'Editing');
 }

@@ -292,7 +292,7 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
     return { scene: sc, ...fixed, shots: fixed.shots.map((s) => ({ ...s, scene_light: light })) };
   });
 
-  const chain = !!p.settings?.chain_clips;
+  const chain = config.minimax.chainClips && !!p.settings?.chain_clips;
   const total = await sql.begin(async (tx) => {
     await tx`delete from shots where episode_id = ${episodeId}`;
     let idx = 0;

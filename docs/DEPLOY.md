@@ -52,6 +52,8 @@ Follow `gpu-worker/README.md`:
 | `RUNPOD_WARM_MINUTES` | 15 | How long after the last render to stay warm before scaling to 0 |
 | `RUNPOD_JOBS_PER_WORKER` | 2 | Queue depth per GPU before the floor rises |
 | `VIDEO_MAX_INFLIGHT` | 10 | Renders sent to RunPod at once (≈ max workers × 2) |
+| `RENDERS_PER_PROJECT` | 1 | Clips of one film rendering at once, in story order (1 = one by one, watched as they land) |
+| `CHAIN_CLIPS` | 0 | 1 sends each scene's previous clip as a reference video: better matching, but its seconds are billed as input |
 | `RUNPOD_MANAGE_SCALING` | 0, then 1 | Start at 0, watch `/v1/admin/capacity`, then let the controller act |
 | `RUNPOD_GPU_PRICE_PER_SECOND` | your rate | Records real GPU cost per clip, for margin reports |
 

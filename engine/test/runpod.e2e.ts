@@ -18,6 +18,7 @@ process.env.RUNPOD_WARM_MINUTES = '0';
 process.env.RUNPOD_JOBS_PER_WORKER = '1';
 process.env.RUNPOD_MAX_WORKERS = '3';
 process.env.RUNPOD_CAPACITY_TICK_SECONDS = '1';
+process.env.RENDERS_PER_PROJECT = '3'; // one project fills a queue deep enough to test the controller (the product default is 1)
 process.env.PORT ??= '8811';
 process.env.PUBLIC_BASE_URL ??= `http://localhost:${process.env.PORT}`;
 process.env.STORAGE_DIR ??= './data/runpod-files';
@@ -101,6 +102,11 @@ await until('second project ready', async () => (await stage(p2.id)).project.sta
 const before = fake.state.submitted;
 await api(A, 'POST', `/v1/projects/${p2.id}/produce`, {});
 await until('renders running on RunPod', async () => fake.state.submitted > before && [...fake.state.jobs.values()].some((j) => j.status === 'IN_PROGRESS'));
+const [{ waiting }] = await sql`select count(*)::int waiting from takes where project_id = ${p2.id} and status = 'pending'`;
+const { capacityTick } = await import('../src/capacity.js');
+const tick = await capacityTick();
+assert.ok(waiting > 3 && /\b3 renders can run now\b/.test(tick.progress || ''), `clips waiting their turn keep no GPU warm (${waiting} waiting; ${tick.progress})`);
+log(`  ✓ ${waiting} clips waiting their turn; the controller counts only the 3 that can run`);
 await api(A, 'DELETE', `/v1/projects/${p2.id}`);
 assert.ok(fake.state.cancelled.length > 0, 'running RunPod jobs were cancelled');
 log(`  ✓ ${fake.state.cancelled.length} RunPod job(s) cancelled`);

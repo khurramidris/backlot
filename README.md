@@ -1,8 +1,8 @@
 # Backlot
 
 **Type a story, get a film.** A customer describes an idea in a sentence. Backlot writes the script, designs
-the cast and sets, plans the shots, shows the price, and then renders, edits and subtitles the finished
-video: microdramas, short films, web series and YouTube stories.
+the cast and sets, plans the shots, shows the price, and then renders the shots one by one (watch each as it
+lands) and joins them into the finished video: microdramas, short films, web series and YouTube stories.
 
 | | |
 |---|---|

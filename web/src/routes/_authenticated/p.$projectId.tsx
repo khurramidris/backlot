@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Check, Download, Loader2, Play, RotateCcw, Wand2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Clock,
+  Download,
+  Loader2,
+  Play,
+  RotateCcw,
+  Wand2,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -90,6 +99,12 @@ function ProjectPage() {
           <span>{progress || STAGE_LABEL[stage!]}…</span>
           <span className="text-muted-foreground">You can close this page; we'll keep going.</span>
         </div>
+      ) : null}
+      {stage === "rendering" ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Shots are filmed one at a time, in story order. Play any finished shot below while the
+          rest are filmed.
+        </p>
       ) : null}
 
       {project.stage_error && stage !== "failed" ? (
@@ -366,7 +381,16 @@ function EpisodeShots({
                   aspect === "9:16" ? "aspect-[9/16]" : "aspect-video",
                 )}
               >
-                {take?.thumb_url ? (
+                {take?.url ? (
+                  <video
+                    src={take.url}
+                    poster={take.thumb_url ?? undefined}
+                    className="size-full object-cover"
+                    controls
+                    playsInline
+                    preload="none"
+                  />
+                ) : take?.thumb_url ? (
                   <img
                     src={take.thumb_url}
                     alt=""
@@ -374,11 +398,16 @@ function EpisodeShots({
                     loading="lazy"
                   />
                 ) : null}
-                {s.status === "queued" || s.status === "rendering" ? (
-                  <Loader2 className="absolute size-5 animate-spin text-primary" />
+                {s.status === "rendering" ? (
+                  <Loader2 className="pointer-events-none absolute size-5 animate-spin text-primary" />
+                ) : null}
+                {s.status === "queued" && !take ? (
+                  <span className="pointer-events-none absolute flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Clock className="size-3" /> Waiting
+                  </span>
                 ) : null}
                 {s.status === "failed" || s.status === "blocked" ? (
-                  <AlertTriangle className="absolute size-5 text-destructive" />
+                  <AlertTriangle className="pointer-events-none absolute size-5 text-destructive" />
                 ) : null}
               </div>
               <div className="space-y-1 p-2">

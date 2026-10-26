@@ -1,5 +1,7 @@
 // Rendering: one take = one H3 task. Submit → poll every ~10 s → copy the MP4 into our own
 // storage (MiniMax links expire) → verify it with ffprobe → thumbnail → ready for review.
+// A project's clips render in story order, one at a time by default (RENDERS_PER_PROJECT), so the customer can
+// watch the finished ones while the rest render; when one finishes, the next starts straight away.
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,9 +55,10 @@ export async function buildRequest(shot: any, resolution: string) {
   const scene = shot.scene_id ? (await sql`select * from scenes where id = ${shot.scene_id}`)[0] : null;
   const A = await projectAssets(p.id);
 
-  // Continuity: pass the previous approved clip of the same scene as a reference video.
+  // Continuity: pass the previous approved clip of the same scene as a reference video (off unless CHAIN_CLIPS=1:
+  // its seconds are billed as input on every render).
   let prev: any = null;
-  if (shot.chain_prev && p.settings?.chain_clips) {
+  if (config.minimax.chainClips && shot.chain_prev && p.settings?.chain_clips) {
     [prev] = await sql`select t.file_key, t.media from shots s join takes t on t.id = s.approved_take_id
       where s.scene_id = ${shot.scene_id} and s.idx = ${shot.idx - 1} and s.status = 'approved'`;
   }
@@ -99,7 +102,12 @@ export async function submitTake(takeId: string): Promise<any | Again> {
   const [{ mine }] = await sql`select count(*)::int mine from takes t join projects p on p.id = t.project_id
     where t.status in ('submitted','running') and p.owner_id = (select owner_id from projects where id = ${t.project_id})`;
   if (mine >= config.minimax.maxConcurrentPerUser) return { again: 15, progress: `waiting for one of your ${mine} renders to finish` };
-  const [shot] = await sql`select * from shots where id = ${t.shot_id}`;
+  const [shot] = await sql`select s.*, e.idx episode_idx from shots s join episodes e on e.id = s.episode_id where s.id = ${t.shot_id}`;
+  // Story order: this clip waits while the project has its clips rendering, or earlier clips still waiting to start.
+  const [{ busy, ahead }] = await sql`select count(*) filter (where t.status in ('submitted','running'))::int busy,
+      count(*) filter (where t.status = 'pending' and t.id <> ${takeId} and (e.idx, s.idx, t.created_at) < (${shot.episode_idx}::int, ${shot.idx}::int, ${t.created_at}::timestamptz))::int ahead
+    from takes t join shots s on s.id = t.shot_id join episodes e on e.id = s.episode_id where t.project_id = ${t.project_id}`;
+  if (busy + ahead >= config.minimax.maxConcurrentPerProject) return { again: 10, progress: 'waiting for the clip before it' };
   const { body, loggable } = await buildRequest(shot, t.resolution);
   try {
     const taskId = await mm(config.videoProvider).createVideoTask(body, { key: takeKey(t) });
@@ -167,6 +175,7 @@ export async function pollTake(takeId: string): Promise<any | Again> {
     await settleTake(takeId, !fatal); // the customer only pays for a usable clip
     await sql`update shots set status = ${fatal ? 'failed' : 'review'}, error = ${fatal ? problems.join('; ') : null}, updated_at = now() where id = ${t.shot_id} and status <> 'approved'`;
     await refreshEpisodeStatus(t.shot_id);
+    await startNext(t.project_id);
     return { file_key: key, problems };
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
@@ -178,6 +187,13 @@ async function failTake(takeId: string, shotId: string, error: string, code: str
   const [other] = await sql`select 1 from takes where shot_id = ${shotId} and status = 'succeeded' limit 1`;
   await sql`update shots set status = ${other ? 'review' : code === 'sensitive_content' ? 'blocked' : 'failed'}, error = ${error.slice(0, 500)}, updated_at = now()
     where id = ${shotId} and status <> 'approved'`;
+  const [t] = await sql`select project_id from takes where id = ${takeId}`;
+  if (t) await startNext(t.project_id);
+}
+
+/** A clip finished: the project's next waiting clip starts now rather than at its next check. */
+async function startNext(projectId: string) {
+  await sql`update jobs set run_after = now() where kind = 'take.submit' and status = 'queued' and project_id = ${projectId} and run_after > now()`;
 }
 
 export async function refreshEpisodeStatus(shotId: string) {

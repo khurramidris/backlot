@@ -75,7 +75,14 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
   chosen by `VIDEO_PROVIDER`.
   - With RunPod, the worker uploads each clip straight to our storage through a signed link.
   - `engine/src/capacity.ts` sets the GPU floor: 0 when idle, warm while active, deeper when busy, never above
-    the cap.
+    the cap. It counts only clips that can run now, so a film's clips waiting their turn keep no GPU warm.
+- **Rendering** (`pipeline/render.ts`): a project's clips render in story order, one at a time
+  (`RENDERS_PER_PROJECT`), and the next starts as soon as one finishes. The customer plays each finished clip on
+  the project page while the rest are filmed. The previous clip is not sent along as a reference video
+  (`CHAIN_CLIPS`, off): its seconds would be billed as input on every render.
+- **Editing** (`pipeline/assemble.ts`): the clips are joined whole, in order, at one size, frame rate and audio
+  format, with the episode's loudness at streaming level. Nothing is trimmed, and captions and music are the
+  creator's to add; burned-in subtitles, fades and a music bed remain options of a cut.
 - **Auth:** Supabase Auth in the browser. The engine verifies the session token on every `/v1` request. All
   product data lives in the engine's tables; Supabase only knows about users.
 

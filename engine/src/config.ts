@@ -90,6 +90,12 @@ export const config = {
     // Renders in flight at the provider at once (RunPod: roughly max workers × 2, so its queue stays short).
     maxConcurrentVideo: num(env.VIDEO_MAX_INFLIGHT, num(env.MINIMAX_MAX_CONCURRENT, 10)),
     maxConcurrentPerUser: num(env.MAX_ACTIVE_RENDERS_PER_USER, 6), // one customer can't take every render slot
+    // Clips of one project render this many at a time, in story order, so the customer watches them arrive in the
+    // order they play (1 = one by one).
+    maxConcurrentPerProject: Math.max(1, num(env.RENDERS_PER_PROJECT, 1)),
+    // Send the scene's previous approved clip as a reference video. Off: its seconds count as input on every render,
+    // a cost the customer's per-second price doesn't cover.
+    chainClips: bool(env.CHAIN_CLIPS, false),
     pollSeconds: num(env.MINIMAX_POLL_SECONDS, 10),
     taskTimeoutMinutes: num(env.MINIMAX_TASK_TIMEOUT_MIN, 30),
     // How reference media reaches MiniMax: 'url' needs PUBLIC_BASE_URL or S3 signed URLs reachable
