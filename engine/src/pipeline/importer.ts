@@ -96,7 +96,7 @@ export async function createProject(ownerId: string, body: any) {
     const [p] = await tx`
       insert into projects (owner_id, title, format, aspect, resolution, language, style, story_bible, settings, source)
       values (${ownerId}, ${n.title}, ${n.format}, ${n.aspect}, ${n.resolution}, ${n.language},
-              ${tx.json(n.style)}, ${tx.json(n.story_bible)}, ${tx.json({ chain_clips: true, burn_subtitles: true, ...n.settings })}, ${tx.json(body)})
+              ${tx.json(n.style)}, ${tx.json(n.story_bible)}, ${tx.json({ chain_clips: true, burn_subtitles: false, ...n.settings })}, ${tx.json(body)})
       returning *`;
     let i = 0;
     for (const e of n.episodes) {

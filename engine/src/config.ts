@@ -17,6 +17,8 @@ if (!env.FILE_SIGNING_SECRET && !devMode) throw new Error('FILE_SIGNING_SECRET i
 /** "starter:10:12345,creator:50:12346" → [{ id: 'starter', usd: 10, variantId: '12345' }, …]. The variant is the Lemon Squeezy product variant. */
 const packs = (v: string) => v.split(',').map((p) => p.split(':').map((x) => x.trim())).filter(([id, usd]) => id && +usd > 0)
   .map(([id, usd, variantId]) => ({ id, usd: +usd, variantId: variantId || '' }));
+/** "scene:claude-sonnet-5-5, shots:claude-haiku-5-5" → { scene: 'claude-sonnet-5-5', shots: 'claude-haiku-5-5' } */
+const pairs = (v: string) => Object.fromEntries(v.split(',').map((p) => p.split(':').map((x) => x.trim())).filter(([k, m]) => k && m));
 
 export const config = {
   port: num(env.PORT, 8787),
@@ -59,15 +61,24 @@ export const config = {
     baseUrl: (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, ''),
     model: env.CLAUDE_MODEL || 'claude-opus-5-5',            // every creative and planning step
     fastModel: env.CLAUDE_FAST_MODEL || 'claude-sonnet-5-5', // retake revisions, small edits
-    // Thinking depth: story development, screenplay, script doctor and direction use the creative level;
+    // Per-step overrides, e.g. "scene:claude-sonnet-5-5,shots:claude-haiku-5-5". Steps: pitch, choose, bible, rename,
+    // outline, scene, critique, judge, breakdown, direct, shots, retake. Unlisted steps use CLAUDE_MODEL (retake: CLAUDE_FAST_MODEL).
+    models: pairs(env.CLAUDE_MODELS || '') as Record<string, string>,
+    // Thinking depth: story development, scene writing, critique and direction use the creative level;
     // breakdown and per-scene shot planning (many calls) use the planning level.
     effort: (env.STORY_EFFORT || 'high') as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
     planningEffort: (env.PLANNING_EFFORT || 'medium') as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
+    // What the model and endpoint support. Off: the answer's shape is described in the prompt and an answer that
+    // doesn't parse gets one repair round; no thinking parameters are sent. A 400 that names the feature turns it off too.
+    structured: bool(env.CLAUDE_STRUCTURED_OUTPUTS, true),
+    thinking: bool(env.CLAUDE_THINKING, true),
     // Server-side refusal fallbacks (first-party API only; turn off behind a proxy that rejects them).
     fallbacks: bool(env.CLAUDE_FALLBACKS, !env.ANTHROPIC_BASE_URL || /api\.anthropic\.com/.test(env.ANTHROPIC_BASE_URL)),
-    // The script doctor pass (a critique and rewrite of the first draft). Costs one more call per project.
+    // The polish pass: a script editor's critique, then rewrites of only the scenes it flags, each kept only if it's better.
     scriptDoctor: bool(env.SCRIPT_DOCTOR, true),
-    // Scenes planned at once per episode (each is one Claude call).
+    // Each episode's opening and closing scene is drafted this many times and a judge keeps the best (1 = no extra drafts).
+    keyDrafts: Math.max(1, Math.min(3, num(env.KEY_SCENE_DRAFTS, 2))),
+    // Scenes written or planned at once per episode (each is one Claude call).
     planConcurrency: num(env.PLAN_CONCURRENCY, 4),
   },
 
@@ -79,6 +90,12 @@ export const config = {
     // Renders in flight at the provider at once (RunPod: roughly max workers × 2, so its queue stays short).
     maxConcurrentVideo: num(env.VIDEO_MAX_INFLIGHT, num(env.MINIMAX_MAX_CONCURRENT, 10)),
     maxConcurrentPerUser: num(env.MAX_ACTIVE_RENDERS_PER_USER, 6), // one customer can't take every render slot
+    // Clips of one project render this many at a time, in story order, so the customer watches them arrive in the
+    // order they play (1 = one by one).
+    maxConcurrentPerProject: Math.max(1, num(env.RENDERS_PER_PROJECT, 1)),
+    // Send the scene's previous approved clip as a reference video. Off: its seconds count as input on every render,
+    // a cost the customer's per-second price doesn't cover.
+    chainClips: bool(env.CHAIN_CLIPS, false),
     pollSeconds: num(env.MINIMAX_POLL_SECONDS, 10),
     taskTimeoutMinutes: num(env.MINIMAX_TASK_TIMEOUT_MIN, 30),
     // How reference media reaches MiniMax: 'url' needs PUBLIC_BASE_URL or S3 signed URLs reachable
@@ -88,9 +105,6 @@ export const config = {
 
   // Which service renders video: MiniMax's API, or our own H3 deployment on RunPod Serverless.
   videoProvider: (env.VIDEO_PROVIDER || 'minimax') as 'minimax' | 'runpod',
-  // Pass a scene's previous clip to the next shot as a reference video (continuity). auto: on with MiniMax, off on our
-  // own GPUs, where a reference clip roughly doubles the work of every shot.
-  chainClips: (env.CHAIN_CLIPS || 'auto') as 'auto' | '1' | '0',
 
   // Quick clips: text, an image, references or a video to remix → one clip, charged per second like film shots.
   clips: {

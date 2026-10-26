@@ -135,7 +135,7 @@ Two related settings live in **Backlot's** own settings (`engine/.env.local`, Ra
 
 | Setting | Default | What it does |
 |---|---|---|
-| `CHAIN_CLIPS` | `auto` | `1` sends each scene's previous shot along as a reference video, for continuity. `auto` does that with MiniMax but not on your own GPUs, where a reference clip makes every shot about twice the work (sparse attention never speeds up reference material). Try `1` once the basics look right. |
+| `CHAIN_CLIPS` | `0` | `1` sends each scene's previous shot along as a reference video, for continuity. On your own GPUs a reference clip makes every shot about twice the work (sparse attention never speeds up reference material). |
 | `CLIP_IMAGE_PROVIDER` | (same as video) | `minimax` sends image-to-video quick clips to MiniMax's hosted H3 instead. On your own GPUs, image-to-video pins the picture as the first frame, which these model files weren't trained for: if those clips look wrong, switch this. |
 
 ## If something goes wrong

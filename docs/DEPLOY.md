@@ -55,6 +55,8 @@ Then move video to your own GPUs on RunPod. Follow `docs/SELF-HOSTED-H3.md` (pla
 | `RUNPOD_WARM_MINUTES` | 15 | How long after the last render to stay warm before scaling to 0 |
 | `RUNPOD_JOBS_PER_WORKER` | 2 | Queue depth per GPU before the floor rises |
 | `VIDEO_MAX_INFLIGHT` | 10 | Renders sent to RunPod at once (≈ max workers × 2) |
+| `RENDERS_PER_PROJECT` | 1 | Clips of one film rendering at once, in story order (1 = one by one, watched as they land) |
+| `CHAIN_CLIPS` | 0 | 1 sends each scene's previous clip as a reference video: better matching, but its seconds are billed as input |
 | `RUNPOD_MANAGE_SCALING` | 0, then 1 | Start at 0, watch `/v1/admin/capacity`, then let the controller act |
 | `RUNPOD_GPU_PRICE_PER_SECOND` | your rate | Records real GPU cost per clip, for margin reports |
 
@@ -162,6 +164,17 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
     ledger, plus credit grants and deductions (with a note; top-up bucket; ledger reasons
     `admin_grant` / `admin_deduct`)
 - **Setup check** (`/setup`) tests every production setting and service.
+- **Story engine** (how it works and how to judge a change: `docs/STORY-ENGINE.md`):
+
+  | Variable | Start with | Meaning |
+  |---|---|---|
+  | `CLAUDE_MODEL` | `claude-opus-5-5` | Every writing and planning step |
+  | `CLAUDE_MODELS` | empty | Per-step models, e.g. `scene:claude-sonnet-5-5,judge:claude-sonnet-5-5,shots:claude-sonnet-5-5` |
+  | `STORY_EFFORT` / `PLANNING_EFFORT` | `high` / `medium` | Thinking depth for the story steps / the many shot and judge calls |
+  | `SCRIPT_DOCTOR` | 1 | The script editor's notes and the rewrites of the scenes it flags |
+  | `KEY_SCENE_DRAFTS` | 2 | Drafts of each episode's opening and ending; a judge keeps the best (1 = off) |
+  | `CLAUDE_STRUCTURED_OUTPUTS` / `CLAUDE_THINKING` | 1 / 1 | Set 0 for a model or endpoint without them |
+  | `PROMPT_LOG_DIR` | unset | Write every prompt to this folder, to read exactly what the model was sent |
 - **Error alerts:** set `SENTRY_DSN`. It reports API errors (5xx), jobs that fail on their last attempt, and
   unhandled rejections.
 - **Content checks** (`MODERATION`, on by default): before anything is filmed, Claude's fast model checks quick-clip
@@ -173,8 +186,8 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
   checks".
 - **Quick clips** are 5 to 15 seconds (`CLIP_MIN_SECONDS` sets the shortest). On your own RunPod H3,
   image-to-video pins the picture as the first frame; if those clips look wrong, set
-  `CLIP_IMAGE_PROVIDER=minimax` to send just that mode to MiniMax. `CHAIN_CLIPS` (`auto`) decides whether films
-  send each scene's previous shot along for continuity: on with MiniMax, off on RunPod, where it doubles the GPU work.
+  `CLIP_IMAGE_PROVIDER=minimax` to send just that mode to MiniMax. `CHAIN_CLIPS` (off) decides whether films send
+  each scene's previous shot along for continuity: billed as input seconds on MiniMax, double the GPU work on RunPod.
 - **Rate limits** are per customer and in memory, per instance:
   - 600 API requests a minute
   - 30 new videos an hour

@@ -1,22 +1,37 @@
-// Prompt → production, as a writers' room in three steps, each saved before the next (so a restart resumes
-// and no single job runs long):
-//   1. develop: three different takes on the idea, the strongest developed into a treatment (theme,
-//      characters with wants, secrets and voices, world, beat sheet, clichés to avoid);
-//   2. screenplay: the full Fountain script from the treatment;
-//   3. script doctor: a critique against automated checks and a story editor's checklist, then a rewrite.
-// The result has the same shape the importer accepts, so everything downstream is unchanged.
+// Prompt → screenplay, as a writers' room. Each step is one small job, saved before the next, so a restart resumes,
+// no job runs long, and no model is ever asked to hold the whole film in its head at once:
+//   1. pitch: three different takes on the idea; then a head of development scores them on a rubric and picks one,
+//      with development notes (choosing well is easier than writing well, so a weaker model still chooses well);
+//   2. bible: the chosen take developed into the story bible (characters with wants, secrets and voices, world,
+//      sets, setups and payoffs, the shape of each episode, the film's look); overused names are recast;
+//   3. outline: each episode boarded into scene cards (purpose, what each character wants, what's underneath, the
+//      turn, the exit), with seconds, scene counts and a timed beat grid worked out in code;
+//   4. scenes: every scene written from its card, in parallel, to a word budget computed in code, with worked
+//      examples; an episode's opening and ending are drafted twice and a judge keeps the better one;
+//   5. polish: a script editor scores the screenplay and gives located notes; only the flagged scenes are rewritten,
+//      and a rewrite replaces a scene only if the checks don't get worse and a judge prefers it.
+// Scenes are written as elements and code renders the Fountain, so every script parses the same way. The result has
+// the shape the importer accepts, so everything downstream is unchanged; the cards travel on in the story bible to
+// the director and the shot planner.
 
 import { z } from 'zod';
 import { sql } from '../db.js';
 import { config } from '../config.js';
 import { PermanentError, type JobCtx } from '../queue.js';
-import { claudeJSON, llmCost, llmUnits } from '../providers/claude.js';
+import { claudeJSON, llmCost, llmUnits, type ClaudeCall } from '../providers/claude.js';
 import { recordUsage } from '../usage.js';
-import { parseFountain, parseScenes } from './fountain.js';
+import { sceneFountain, type SceneElement } from './fountain.js';
 import { normalizeImport } from './importer.js';
-import { DEVELOP_SYSTEM, developPrompt, SCREENPLAY_SYSTEM, screenplayPrompt, DOCTOR_SYSTEM, doctorPrompt } from './prompts.js';
-import { DevelopSchema, ScreenplaySchema, DoctorSchema } from './schemas.js';
-import { recentWork, sparksFor, storyLint } from './story.js';
+import {
+  PITCH_SYSTEM, pitchPrompt, CHOOSE_SYSTEM, choosePrompt, BIBLE_SYSTEM, biblePrompt, RENAME_SYSTEM, renamePrompt, OUTLINE_SYSTEM, outlinePrompt,
+  SCENE_SYSTEM, scenePrompt, CRITIQUE_SYSTEM, critiquePrompt, JUDGE_SYSTEM, judgePrompt, bibleText, cardLine, cardText,
+} from './prompts.js';
+import { PitchSchema, ChooseSchema, BibleSchema, RenameSchema, OutlineSchema, SceneSchema, CritiqueSchema, JudgeSchema } from './schemas.js';
+import {
+  applyRenames, budget, cleanBible, cleanOutline, cleanScene, inParallel, overusedNames, plantNotes, recentWork, rhythm, sceneProblem,
+  sceneRange, shuffled, sparksFor, storyLint, type CardOut,
+} from './story.js';
+import { craftFor, craftTags } from './craft.js';
 
 type Range = readonly [number, number];
 export const FORMATS: Record<string, { label: string; aspect: string; engine: string; episodes: Range; seconds: Range; defaults: { episodes: number; seconds: number }; notes: string }> = {
@@ -52,128 +67,326 @@ export function resolveBrief(raw: unknown): Brief {
   return { ...b, episodes, seconds, aspect: f.aspect, engineFormat: f.engine };
 }
 
-/** Why a written production can't be used, or '' when it can. */
-export function checkWritten(d: any, brief: Pick<Brief, 'episodes' | 'seconds'>): string {
-  if (!d || typeof d !== 'object') return 'the answer was not a JSON object';
-  if (!Array.isArray(d.episodes) || d.episodes.length < brief.episodes) return `expected ${brief.episodes} episode(s), got ${Array.isArray(d.episodes) ? d.episodes.length : 0}`;
-  const bible = (Array.isArray(d.characters) ? d.characters : []).map((c: any) => ({ ...c, id: String(c?.id || c?.name || '').toUpperCase() }));
-  for (const [i, e] of d.episodes.slice(0, brief.episodes).entries()) {
-    if (typeof e?.script !== 'string' || !e.script.trim()) return `episode ${i + 1} has no script`;
-    if (!parseFountain(e.script).some((el) => el.t === 'scene')) return `episode ${i + 1} has no INT./EXT. scene headings`;
-    const secs = parseScenes(e.script, bible).reduce((t, s) => t + s.estSeconds, 0);
-    if (secs > brief.seconds * 2.5) return `episode ${i + 1} runs about ${secs}s but the target is ${brief.seconds}s`;
-  }
-  return '';
+/** The take to develop: the best rubric total among takes that keep the customer's idea (fidelity counts double). */
+export function pickConcept(choice: any, n: number): number {
+  const scores: any[] = Array.isArray(choice?.scores) ? choice.scores : [];
+  const said = Number.isInteger(+choice?.chosen) && +choice.chosen >= 0 && +choice.chosen < n ? +choice.chosen : 0;
+  const v = (s: any, k: string) => Math.min(5, Math.max(1, Math.round(+s?.[k]) || 1));
+  const rated = Array.from({ length: n }, (_, i) => scores.find((s) => +s?.concept === i)).map((s, i) => ({ i, s }))
+    .filter((x) => x.s).map(({ i, s }) => ({ i, fidelity: v(s, 'fidelity'), total: 2 * v(s, 'fidelity') + ['hook', 'stakes', 'specificity', 'surprise', 'renderable'].reduce((t, k) => t + v(s, k), 0) }));
+  if (!rated.length) return said;
+  const faithful = rated.filter((x) => x.fidelity >= 3);
+  const pool = faithful.length ? faithful : rated;
+  const best = Math.max(...pool.map((x) => x.total));
+  const top = pool.filter((x) => x.total === best);
+  return (top.find((x) => x.i === said) || top[0]).i;
 }
 
-/** Why a treatment can't be scripted from, or '' when it can. */
-export function checkTreatment(d: any, brief: Pick<Brief, 'episodes'>): string {
-  const t = d?.treatment;
-  if (!t || typeof t !== 'object') return 'there was no treatment';
-  if (!Array.isArray(t.characters) || !t.characters.length) return 'the treatment has no characters';
-  if (!Array.isArray(t.episodes) || t.episodes.length < brief.episodes) return `the treatment plans ${Array.isArray(t.episodes) ? t.episodes.length : 0} episode(s), ${brief.episodes} were asked for`;
-  if (t.episodes.slice(0, brief.episodes).some((e: any) => !Array.isArray(e?.beats) || !e.beats.length)) return 'an episode has no beats';
-  return '';
+/** A judge's verdicts mapped back to the versions, given which pairs were shown in swapped order. 0 = the first version. */
+export function judged(raw: any, flips: boolean[]): { winner: 0 | 1; clear: boolean }[] {
+  const vs: any[] = Array.isArray(raw?.verdicts) ? raw.verdicts : [];
+  return flips.map((flip, n) => {
+    const v = vs.find((x) => +x?.pair === n + 1) || vs[n];
+    const saidB = String(v?.better || 'A').trim().toUpperCase().startsWith('B');
+    return { winner: (saidB !== flip ? 1 : 0) as 0 | 1, clear: v ? !/slight/i.test(String(v.margin)) : false };
+  });
 }
 
-type WriteState = { phase?: 'develop' | 'screenplay' | 'doctor'; treatment?: any; concepts?: any[]; draft?: any; tries?: number; problem?: string };
+type Note = { problem: string; fix: string };
+type Phase = 'pitch' | 'bible' | 'outline' | 'scenes' | 'critique' | 'revise';
+interface WriteState {
+  phase?: Phase; tries?: number; problem?: string;
+  concepts?: any[]; choice?: { chosen: number; scores: any[]; notes: string[] };
+  bible?: any;
+  outline?: CardOut[][];                      // scene cards per episode
+  scenes?: (SceneElement[] | null)[][];       // written scenes per episode, aligned with the cards
+  critique?: { scores: any; scenes: any[] } | null;
+  revised?: number;                           // episodes polished so far
+  notes?: string[];                           // what the polish did, for the report
+}
 
 /**
  * One step of the writers' room per call. Returns done=true once the final screenplay is saved.
  * State lives in projects.autopilot.writing, so a failed or restarted job resumes at its step.
  */
-export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done: boolean; progress: string }> {
+export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done: boolean; progress: string; wait?: number }> {
   const [p] = await sql`select * from projects where id = ${projectId}`;
   if (!p) throw new PermanentError('project not found');
   const brief = p.brief as Brief;
   const f = FORMATS[brief.format];
-  const st: WriteState = p.autopilot?.writing || {};
-  const phase = st.phase || 'develop';
+  let st: WriteState = p.autopilot?.writing || {};
+  if (st.phase && !['pitch', 'bible', 'outline', 'scenes', 'critique', 'revise'].includes(st.phase)) st = {}; // state from an older engine: start over
+  const phase: Phase = st.phase || 'pitch';
   const base = { format: f.label, formatNotes: f.notes, aspect: brief.aspect, episodes: brief.episodes, secondsPerEpisode: brief.seconds, language: brief.language };
   const retryNote = st.problem ? `\n\nYOUR PREVIOUS ANSWER WAS UNUSABLE: ${st.problem}. Fix that.` : '';
   const save = (patch: WriteState | null) => sql`update projects set autopilot = autopilot || ${sql.json({ writing: patch } as any)}, updated_at = now() where id = ${projectId}`;
-  const track = (r: any, ref: string) => recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref });
   const fail = async (problem: string, what: string) => {
     const tries = (st.tries || 0) + 1;
     if (tries >= 2) throw new PermanentError(`The ${what} could not be written: ${problem}.`, 'write_failed');
     await save({ ...st, phase, tries, problem });
     return { done: false, progress: `Rewriting the ${what}` };
   };
+  /** One Claude call of this project, with its cost recorded. */
+  const ask = async <T>(call: ClaudeCall<T>, ref: string) => {
+    const r = await claudeJSON<T>(call);
+    await recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref });
+    return r.data;
+  };
+  const room = { p, brief, st, ask };
 
-  if (phase === 'develop') {
-    await ctx.progress('Developing the story');
+  if (phase === 'pitch') {
+    await ctx.progress('Pitching takes on the idea');
     const input = { ...base, prompt: brief.prompt, sparks: sparksFor(projectId), recent: await recentWork(p.owner_id, projectId) };
-    const r = await claudeJSON({ task: 'develop', system: DEVELOP_SYSTEM, prompt: developPrompt(input) + retryNote, input, schema: DevelopSchema, effort: config.anthropic.effort, maxTokens: 32000 });
-    await track(r, 'develop');
-    const problem = checkTreatment(r.data, brief);
+    const pitched = await ask({ task: 'pitch', system: PITCH_SYSTEM(brief.format), prompt: pitchPrompt(input) + retryNote, input, schema: PitchSchema, effort: config.anthropic.effort, maxTokens: 24000 }, 'pitch');
+    const concepts = (Array.isArray(pitched?.concepts) ? pitched.concepts : []).filter((c: any) => c && typeof c === 'object' && (c.logline || c.title)).slice(0, 3);
+    if (!concepts.length) return fail('there were no takes on the idea', 'story');
+    let choice = { chosen: 0, scores: [] as any[], notes: [] as string[] };
+    if (concepts.length > 1) {
+      try {
+        const c = await ask({ task: 'choose', system: CHOOSE_SYSTEM, prompt: choosePrompt({ ...base, prompt: brief.prompt, concepts }), input: { concepts }, schema: ChooseSchema, effort: config.anthropic.planningEffort, maxTokens: 16000 }, 'choose');
+        choice = { chosen: pickConcept(c, concepts.length), scores: Array.isArray(c?.scores) ? c.scores : [], notes: (Array.isArray(c?.notes) ? c.notes : []).map(String).slice(0, 4) };
+      } catch (e: any) { if (e instanceof PermanentError && e.code === 'refused') throw e; } // without a verdict, the first take
+    }
+    await save({ phase: 'bible', concepts, choice, tries: 0 });
+    return { done: false, progress: 'Takes pitched' };
+  }
+
+  if (phase === 'bible') {
+    await ctx.progress('Developing the story');
+    const concept = st.concepts?.[st.choice?.chosen || 0];
+    const input = { ...base, prompt: brief.prompt, concept, notes: st.choice?.notes || [], recent: await recentWork(p.owner_id, projectId) };
+    const raw = await ask({ task: 'bible', system: BIBLE_SYSTEM(brief.format), prompt: biblePrompt(input) + retryNote, input, schema: BibleSchema, effort: config.anthropic.effort, maxTokens: 32000 }, 'bible');
+    let { bible, problem } = cleanBible(raw, brief.episodes);
     if (problem) return fail(problem, 'story');
-    await save({ phase: 'screenplay', treatment: r.data.treatment, concepts: r.data.concepts, tries: 0 });
+    // Every AI story reaches for the same few names; recast them here, where names are decided once for the film.
+    const rename = overusedNames(bible.characters, brief.prompt);
+    if (rename.length) {
+      try {
+        const r = await ask({ task: 'rename', system: RENAME_SYSTEM, prompt: renamePrompt({ bible, rename }), input: { bible, rename }, schema: RenameSchema, effort: 'low', maxTokens: 8000 }, 'rename');
+        const names = (Array.isArray(r?.names) ? r.names : []).filter((x: any) => !overusedNames([{ name: x?.name }], brief.prompt).length);
+        bible = applyRenames(bible, names);
+      } catch (e: any) { if (e instanceof PermanentError && e.code === 'refused') throw e; } // keep the names rather than fail
+    }
+    bible.episodes = bible.episodes.slice(0, brief.episodes).map((e: any, i: number) => ({ ...e, number: i + 1 }));
+    await save({ ...st, phase: 'outline', bible, outline: [], tries: 0, problem: undefined });
     return { done: false, progress: 'Story developed' };
   }
 
-  if (phase === 'screenplay') {
-    await ctx.progress('Writing the screenplay');
-    const input = { ...base, treatment: st.treatment };
-    const r = await claudeJSON({ task: 'screenplay', system: SCREENPLAY_SYSTEM, prompt: screenplayPrompt(input) + retryNote, input, schema: ScreenplaySchema, effort: config.anthropic.effort, maxTokens: 48000 });
-    await track(r, 'screenplay');
-    const problem = checkWritten(r.data, brief);
-    if (problem) return fail(problem, 'screenplay');
-    if (!config.anthropic.scriptDoctor) { await finish(p, brief, st.treatment, r.data, [], storyLint(r.data, brief, brief.prompt)); await save(null); return { done: true, progress: 'Script written' }; }
-    await save({ ...st, phase: 'doctor', draft: r.data, tries: 0, problem: undefined });
+  if (phase === 'outline') {
+    const outline = st.outline || [];
+    const e = outline.length;
+    await ctx.progress(`Boarding episode ${e + 1}`);
+    const episode = st.bible.episodes[e];
+    const range = sceneRange(brief.format, brief.seconds);
+    const input = {
+      episode, episodes: brief.episodes, seconds: brief.seconds, range, rhythm: rhythm(brief.format, brief.seconds),
+      earlier: outline.map((cards, i) => ({ number: i + 1, cards })), open: e ? plantNotes(st.bible, outline) : [], bible: st.bible,
+    };
+    const raw = await ask({ task: 'outline', system: OUTLINE_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: outlinePrompt(input) + retryNote, input, schema: OutlineSchema, effort: config.anthropic.effort, maxTokens: 32000 }, `outline:${e + 1}`);
+    const { cards, problem } = cleanOutline(raw, st.bible, brief.seconds, range);
+    if (problem) return fail(problem, `outline of episode ${e + 1}`);
+    const next = [...outline, cards];
+    await save({ ...st, outline: next, ...(next.length >= brief.episodes ? { phase: 'scenes', scenes: [] } : {}), tries: 0, problem: undefined });
+    return { done: false, progress: `Episode ${e + 1} boarded` };
+  }
+
+  if (phase === 'scenes') {
+    const outline = st.outline!, scenes = st.scenes || [];
+    const e = outline.findIndex((cards, i) => !(scenes[i] && cards.every((_, k) => scenes[i][k]?.length)));
+    if (e >= 0) {
+      await ctx.progress(`Writing episode ${e + 1}`);
+      const written = await writeEpisode(room, e);
+      const next = [...scenes]; next[e] = written;
+      const missing = written.filter((x) => !x?.length).length;
+      if (missing) {
+        const tries = (st.tries || 0) + 1;
+        if (tries >= 3) throw new PermanentError(`The script could not be written: ${missing} scene(s) of episode ${e + 1} kept failing.`, 'write_failed');
+        await save({ ...st, scenes: next, tries });
+        return { done: false, progress: `Rewriting ${missing} scene(s)`, wait: 30 * tries }; // a moment for a passing outage
+      }
+      await save({ ...st, scenes: next, tries: 0 });
+      return { done: false, progress: `Episode ${e + 1} written` };
+    }
+    if (!config.anthropic.scriptDoctor) return finish(room, []);
+    await save({ ...st, phase: 'critique' });
     return { done: false, progress: 'First draft written' };
   }
 
-  // Script doctor: a critique and rewrite. A worse or broken revision never replaces a usable draft.
-  await ctx.progress('Polishing the script');
-  const before = storyLint(st.draft, brief, brief.prompt);
-  const input = { ...base, treatment: st.treatment, draft: st.draft, checks: before.issues };
-  let final = st.draft, notes: string[] = [];
-  try {
-    const r = await claudeJSON({ task: 'doctor', system: DOCTOR_SYSTEM, prompt: doctorPrompt(input), input, schema: DoctorSchema, effort: config.anthropic.effort, maxTokens: 48000 });
-    await track(r, 'doctor');
-    const after = storyLint(r.data, brief, brief.prompt);
-    if (!checkWritten(r.data, brief) && after.issues.length <= before.issues.length + 2) { final = r.data; notes = (r.data as any).notes || []; }
-    else notes = ['kept the first draft: the revision was not an improvement'];
-  } catch (e: any) {
-    if (e instanceof PermanentError && e.code === 'refused') throw e;
-    notes = [`kept the first draft: the polish step failed (${String(e.message).slice(0, 120)})`];
+  if (phase === 'critique') {
+    await ctx.progress("Script editor's notes");
+    const lint = lintOf(room);
+    let critique: WriteState['critique'] = null;
+    try {
+      const input = { prompt: brief.prompt, outline: st.outline!, scripts: scriptsWithCards(st), checks: lint.issues, plants: plantNotes(st.bible, st.outline!) };
+      const r = await ask({ task: 'critique', system: CRITIQUE_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: critiquePrompt(input), input, schema: CritiqueSchema, effort: config.anthropic.effort, maxTokens: 32000 }, 'critique');
+      critique = { scores: r?.scores || null, scenes: Array.isArray(r?.scenes) ? r.scenes : [] };
+    } catch (e: any) {
+      if (e instanceof PermanentError && e.code === 'refused') throw e;
+      return finish(room, [`kept the first draft: the script editor's pass failed (${String(e.message).slice(0, 120)})`]);
+    }
+    await save({ ...st, phase: 'revise', critique, revised: 0, notes: [] });
+    return { done: false, progress: 'Notes in' };
   }
-  await finish(p, brief, st.treatment, final, notes, storyLint(final, brief, brief.prompt));
-  await save(null);
-  return { done: true, progress: 'Script written' };
+
+  // Polish, one episode per call: only the flagged scenes are rewritten, and only better rewrites are kept.
+  const e = st.revised || 0;
+  if (e < st.outline!.length) {
+    await ctx.progress(`Polishing episode ${e + 1}`);
+    const { scenes, notes } = await reviseEpisode(room, e);
+    const next = [...st.scenes!]; next[e] = scenes;
+    await save({ ...st, scenes: next, revised: e + 1, notes: [...(st.notes || []), ...notes] });
+    return { done: false, progress: `Episode ${e + 1} polished` };
+  }
+  return finish(room, st.notes || []);
 }
 
-/** Save the final screenplay: project title and look, story bible (with the treatment and quality report), episodes. */
-async function finish(p: any, brief: Brief, treatment: any, written: any, notes: string[], report: ReturnType<typeof storyLint>) {
-  const str = (v: any) => (v == null ? '' : String(v));
-  // Voice and look notes from the treatment enrich the cast the breakdown designs from.
-  const tChar = (id: string) => (treatment?.characters || []).find((c: any) => String(c.id).toUpperCase() === id.toUpperCase());
-  const n = normalizeImport({
-    title: str(written.title).slice(0, 200) || 'Untitled', format: brief.engineFormat, aspect: brief.aspect, resolution: '768P', language: brief.language,
-    style: Object.fromEntries(Object.entries(written.style || {}).map(([k, v]) => [k, str(v)])),
-    world: str(written.world),
-    characters: (Array.isArray(written.characters) ? written.characters : []).map((c: any) => {
-      const t = tChar(str(c.id || c.name));
-      return {
-        id: str(c.id || c.name), name: str(c.name || c.id), age: str(c.age), role: str(c.role),
-        description: [str(c.description), t?.look ? `Distinct look: ${t.look}` : ''].filter(Boolean).join(' '),
-        voice: [str(c.voice), t?.voice ? `Speaks ${t.voice.manner}; ${t.voice.rhythm}.` : ''].filter(Boolean).join(' '),
-      };
-    }),
-    episodes: written.episodes.slice(0, brief.episodes).map((e: any, i: number) => ({ label: `Episode ${i + 1}`, title: str(e.title), script: e.script })),
+type Room = { p: any; brief: Brief; st: WriteState; ask: <T>(call: ClaudeCall<T>, ref: string) => Promise<T> };
+
+const castIds = (bible: any) => (bible?.characters || []).map((c: any) => c.id);
+const sceneText = (card: CardOut, els: SceneElement[] | null | undefined) => sceneFountain(card.heading, els || []);
+const episodeScript = (st: WriteState, e: number) => st.outline![e].map((c, k) => sceneText(c, st.scenes?.[e]?.[k])).join('\n\n');
+const scriptsWithCards = (st: WriteState) => st.outline!.map((cards, e) => cards.map((c, k) => `--- Scene ${k + 1}. Card: ${cardLine(c, k).replace(/^\d+\.\s*/, '')}\n${sceneText(c, st.scenes?.[e]?.[k])}`).join('\n\n'));
+
+/** The written production in the shape storyLint and the importer read. */
+function written(st: WriteState) {
+  const b = st.bible || {};
+  return {
+    title: b.title, logline: b.logline, world: [b.world?.place, b.world?.era, b.world?.social_world].filter(Boolean).join('. '),
+    characters: (b.characters || []).map((c: any) => ({ id: c.id, name: c.name, age: c.age, role: c.role, look: c.look })),
+    episodes: (st.outline || []).map((_, e) => ({ title: b.episodes?.[e]?.title || '', script: episodeScript(st, e) })),
+    bible: b,
+  };
+}
+const lintOf = (r: Pick<Room, 'st' | 'brief'>) => storyLint(written(r.st), { seconds: r.brief.seconds, language: r.brief.language }, r.brief.prompt);
+
+/** Write one scene from its card: a cleaned scene, retried once when it can't be used as written. */
+async function draftScene(r: Room, e: number, k: number, o: { seed: string; variant?: string; current?: string; notes?: Note[] }): Promise<SceneElement[] | null> {
+  const { st, brief } = r, cards = st.outline![e], card = cards[k];
+  const examples = craftFor(craftTags({ first: k === 0, last: k === cards.length - 1, speakers: card.characters.length, text: [card.purpose, card.subtext, card.turn, card.key_image, card.exit].join(' '), format: brief.format }), o.seed);
+  const prompt = scenePrompt({ episode: st.bible.episodes[e], episodes: brief.episodes, cards, k, plants: st.bible.plants, budget: budget(card.seconds), examples, draft: o });
+  const call = (extra = '') => r.ask({ task: 'scene', system: SCENE_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: prompt + extra, input: { card, cards, k, bible: st.bible, notes: o.notes, variant: o.variant }, schema: SceneSchema, effort: config.anthropic.effort, maxTokens: 20000 }, `scene:${e + 1}.${k + 1}`);
+  try {
+    let s = cleanScene(await call(), st.bible);
+    const problem = sceneProblem(s, card.seconds, castIds(st.bible));
+    if (problem) {
+      const again = cleanScene(await call(`\n\nYOUR PREVIOUS VERSION COULD NOT BE USED: ${problem}. Write the scene again and fix that.`), st.bible);
+      if (!sceneProblem(again, card.seconds, castIds(st.bible)) || !s.elements.length) s = again;
+    }
+    return s.elements.length ? s.elements : null;
+  } catch (err: any) {
+    if (err instanceof PermanentError) throw err; // a refusal, a bad key or request: another try won't help
+    console.warn(`[writer] scene ${e + 1}.${k + 1}: ${String(err?.message || err).slice(0, 200)}`);
+    return null; // written again on the next step; the scenes that worked are kept
+  }
+}
+
+/** Compare pairs of versions of scenes; the judge sees each pair in a seeded order, so a position bias can't decide. */
+async function judge(r: Room, pairs: { e: number; k: number; a: SceneElement[]; b: SceneElement[] }[], ref: string) {
+  if (!pairs.length) return [];
+  const flips = pairs.map((x) => shuffled(`${r.p.id}:${ref}:${x.e}.${x.k}`, [0, 1])[0] === 1);
+  const shown = pairs.map((x, n) => {
+    const card = r.st.outline![x.e][x.k], [a, b] = flips[n] ? [x.b, x.a] : [x.a, x.b];
+    return { card: cardText(card, x.k, r.st.outline![x.e].length, r.st.bible.plants), a: sceneText(card, a), b: sceneText(card, b) };
   });
+  try {
+    const raw = await r.ask({ task: 'judge', system: JUDGE_SYSTEM, context: bibleText(r.st.bible, { language: r.brief.language }), prompt: judgePrompt({ pairs: shown }), input: { pairs: shown }, schema: JudgeSchema, effort: config.anthropic.planningEffort, maxTokens: 16000 }, ref);
+    return judged(raw, flips);
+  } catch (err: any) {
+    if (err instanceof PermanentError && err.code === 'refused') throw err;
+    return pairs.map(() => ({ winner: 0 as const, clear: false })); // no verdict: keep the first version
+  }
+}
+
+/** Every missing scene of an episode, in parallel; the opening and the ending get extra drafts and a judge. */
+async function writeEpisode(r: Room, e: number): Promise<(SceneElement[] | null)[]> {
+  const cards = r.st.outline![e], have = r.st.scenes?.[e] || [];
+  const key = (k: number) => r.st.outline![e].length > 1 && (k === 0 || k === cards.length - 1);
+  const drafts = config.anthropic.keyDrafts;
+  const jobs = cards.flatMap((_, k) => (have[k]?.length ? [] : Array.from({ length: key(k) ? drafts : 1 }, (_, d) => ({ k, d }))));
+  const out = await inParallel(jobs, config.anthropic.planConcurrency, (j) => draftScene(r, e, j.k, {
+    seed: `${r.p.id}:${e}:${j.k}:${j.d}`,
+    variant: j.d ? 'Write a different version from the first one that comes to mind: a bolder, less expected route to the same turn and exit.' : undefined,
+  }));
+  const versions = cards.map((_, k) => jobs.map((j, i) => (j.k === k ? out[i] : null)).filter((x): x is SceneElement[] => !!x?.length));
+  // Openings and endings decide whether anyone watches: a judge picks between the drafts (the first two).
+  const contested = cards.map((_, k) => k).filter((k) => versions[k].length > 1);
+  const verdicts = await judge(r, contested.map((k) => ({ e, k, a: versions[k][0], b: versions[k][1] })), `judge:key:${e + 1}`);
+  return cards.map((_, k) => {
+    if (have[k]?.length) return have[k];
+    const v = contested.indexOf(k);
+    return v >= 0 ? versions[k][verdicts[v].winner] : versions[k][0] || null;
+  });
+}
+
+/** The polish for one episode: rewrite the scenes the editor or the checks flagged; keep a rewrite only if it's better. */
+async function reviseEpisode(r: Room, e: number): Promise<{ scenes: (SceneElement[] | null)[]; notes: string[] }> {
+  const { st } = r, cards = st.outline![e], current = st.scenes![e];
+  const lint = lintOf(r);
+  const flagged = new Map<number, Note[]>();
+  for (const s of st.critique?.scenes || []) {
+    const k = Math.round(+s?.scene) - 1;
+    if (Math.round(+s?.episode || 1) !== e + 1 || !(k >= 0 && k < cards.length) || String(s?.verdict).toLowerCase() !== 'revise') continue;
+    const notes = (Array.isArray(s.notes) ? s.notes : []).map((n: any) => ({ problem: String(n?.problem || '').trim(), fix: String(n?.fix || '').trim() })).filter((n: Note) => n.problem || n.fix);
+    if (notes.length) flagged.set(k, notes.slice(0, 4));
+  }
+  for (const l of lint.located) if (l.episode === e + 1 && l.scene - 1 < cards.length) flagged.set(l.scene - 1, [...(flagged.get(l.scene - 1) || []), { problem: l.issue, fix: '' }].slice(0, 6));
+  const todo = [...flagged.keys()].filter((k) => current[k]?.length).sort((a, b) => a - b);
+  if (!todo.length) return { scenes: current, notes: [] };
+
+  const rewrites = await inParallel(todo, config.anthropic.planConcurrency, (k) => draftScene(r, e, k, { seed: `${r.p.id}:${e}:${k}:rev`, current: sceneText(cards[k], current[k]), notes: flagged.get(k) }));
+  // The checks must not get worse; then a judge decides, and a slight preference for the original yields to fewer issues.
+  const issuesAt = (k: number, els: SceneElement[]) => {
+    const scenes = [...st.scenes!]; scenes[e] = current.map((x, j) => (j === k ? els : x));
+    return lintOf({ st: { ...st, scenes }, brief: r.brief }).located.filter((l) => l.episode === e + 1 && l.scene === k + 1).length;
+  };
+  const candidates = todo.map((k, i) => ({ k, els: rewrites[i] })).filter((x): x is { k: number; els: SceneElement[] } => !!x.els?.length)
+    .map((x) => ({ ...x, before: issuesAt(x.k, current[x.k]!), after: issuesAt(x.k, x.els) }))
+    .filter((x) => x.after <= x.before);
+  const verdicts = await judge(r, candidates.map((x) => ({ e, k: x.k, a: current[x.k]!, b: x.els })), `judge:polish:${e + 1}`);
+  const scenes = [...current], notes: string[] = [];
+  candidates.forEach((x, i) => {
+    const v = verdicts[i];
+    const keep = v.winner === 1 || (!v.clear && x.after < x.before);
+    if (keep) { scenes[x.k] = x.els; notes.push(`E${e + 1} scene ${x.k + 1}: ${(flagged.get(x.k)?.[0]?.problem || 'revised').slice(0, 140)}`); }
+  });
+  const rejected = todo.length - notes.length;
+  if (rejected) notes.push(`E${e + 1}: kept ${rejected} scene(s) as written: the rewrite was not better`);
+  return { scenes, notes };
+}
+
+/** Save the final screenplay: project title and look, story bible (with the cards and quality report), episodes. */
+async function finish(r: Room, notes: string[]) {
+  const { p, brief, st } = r;
+  const str = (v: any) => (v == null ? '' : String(v));
+  const b = st.bible || {}, w = written(st);
+  const report = lintOf(r);
+  const n = normalizeImport({
+    title: str(b.title).slice(0, 200) || 'Untitled', format: brief.engineFormat, aspect: brief.aspect, resolution: '768P', language: brief.language,
+    style: Object.fromEntries(Object.entries(b.style || {}).map(([k, v]) => [k, str(v)])),
+    world: w.world,
+    characters: (b.characters || []).map((c: any) => ({
+      id: str(c.id), name: str(c.name || c.id), age: str(c.age), role: str(c.role),
+      description: c.look ? `Distinct look: ${str(c.look)}` : '',
+      voice: c.voice ? `Speaks ${str(c.voice.manner)}; ${str(c.voice.rhythm)}.` : '',
+    })),
+    episodes: w.episodes.map((x, i) => ({ label: `Episode ${i + 1}`, title: str(x.title), script: x.script })),
+  });
+  const outline = (st.outline || []).map((cards, e) => ({ episode: e + 1, scenes: cards }));
+  const quality = { issues: report.issues, episodes: report.episodes, scores: st.critique?.scores || null, doctor_notes: notes, concepts: st.concepts || [], choice: st.choice || null };
   await sql.begin(async (tx) => {
     await tx`delete from episodes where project_id = ${p.id}`; // a retried write replaces, never appends
     await tx`update projects set title = ${n.title}, format = ${n.format}, aspect = ${n.aspect}, language = ${n.language}, style = ${tx.json(n.style)},
-      story_bible = ${tx.json({ ...n.story_bible, logline: str(written.logline), treatment: treatment || null, quality: { issues: report.issues, episodes: report.episodes, doctor_notes: notes } })},
+      story_bible = ${tx.json({ ...n.story_bible, logline: str(b.logline), treatment: b, outline, quality } as any)},
       updated_at = now() where id = ${p.id}`;
     let i = 0;
     for (const e of n.episodes) await tx`insert into episodes (project_id, idx, label, title, script) values (${p.id}, ${++i}, ${e.label}, ${e.title}, ${e.script})`;
   });
+  await sql`update projects set autopilot = autopilot || ${sql.json({ writing: null } as any)}, updated_at = now() where id = ${p.id}`;
+  return { done: true, progress: 'Script written' };
 }
 
 /** All writing steps in one go (tools and tests; the autopilot runs them one job at a time). */
 export async function writeProduction(projectId: string, ctx: JobCtx) {
-  for (let i = 0; i < 8; i++) if ((await writeStep(projectId, ctx)).done) return;
+  for (let i = 0; i < 40; i++) if ((await writeStep(projectId, ctx)).done) return;
   throw new PermanentError('The script could not be written.', 'write_failed');
 }

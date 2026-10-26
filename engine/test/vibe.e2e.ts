@@ -180,6 +180,15 @@ assert.ok(m.storage.used_bytes > mp4.length, `storage counts the takes, cut and 
 assert.equal(m.storage.quota_bytes, 50 * 1024 ** 3);
 const [{ n: tracked }] = await sql`select count(*)::int n from files where project_id = ${pid}`;
 log(`  ✓ ${info.duration.toFixed(1)}s ${info.width}×${info.height} MP4 with audio; charged $${priceAtReady}; ${tracked} files, ${(m.storage.used_bytes / 1e6).toFixed(1)} MB counted`);
+// One clip at a time, in story order, each started only after the one before it finished; never chained.
+const filmed = await sql`select s.code, t.submitted_at, t.finished_at, t.request from takes t join shots s on s.id = t.shot_id join episodes e on e.id = s.episode_id
+  where t.project_id = ${pid} order by t.submitted_at`;
+const story = await sql`select s.code from shots s join episodes e on e.id = s.episode_id where s.project_id = ${pid} order by e.idx, s.idx`;
+assert.deepEqual(filmed.map((t: any) => t.code), story.map((s: any) => s.code), 'clips start in story order');
+filmed.slice(1).forEach((t: any, i: number) => assert.ok(+t.submitted_at >= +filmed[i].finished_at, `clip ${t.code} started after ${filmed[i].code} finished`));
+assert.ok(filmed.every((t: any) => !(t.request?.refs || []).some((r: any) => r.role === 'reference_video')), 'no clip is sent the one before it');
+assert.equal(cut.srt_url, null, 'no subtitles unless a cut asks for them');
+log(`  ✓ ${filmed.length} clips filmed one by one in story order, none sent the previous clip; a plain join, no subtitles`);
 
 log('\n6. Fix one shot → rebuilt episode');
 const { shots } = await api(A, 'GET', `/v1/episodes/${d.episodes[0].id}/shots`);
@@ -239,7 +248,8 @@ log('  ✓ image regeneration, breakdown and shot rewrites are charged; failures
 log('\n9. Storage quota and deleting a project');
 const dir = join(process.env.STORAGE_DIR!, 'projects', pid);
 assert.ok((await stat(dir)).isDirectory(), 'project files on disk');
-await sql`insert into files (key, project_id, owner_id, bytes) values (${`projects/${pid}/huge.bin`}, ${pid}, ${A}, ${Math.round(50.3 * 1024 ** 3)})`;
+const usedSoFar = (await me(A)).storage.used_bytes; // the film's own files, whatever their size: the total lands at 50.35 GB
+await sql`insert into files (key, project_id, owner_id, bytes) values (${`projects/${pid}/huge.bin`}, ${pid}, ${A}, ${Math.round(50.35 * 1024 ** 3) - usedSoFar})`;
 const full = await api(A, 'POST', '/v1/create', { prompt: 'A lighthouse keeper receives a letter from the future.' }, [402]);
 assert.equal(full.error.code, 'storage_full'); assert.match(full.error.message, /using 50\.3 of 50 GB/);
 await api(A, 'POST', `/v1/shots/${fix.id}/retake`, { note: 'x' }, [402]);

@@ -232,7 +232,7 @@ v1.post('/create', async (c) => {
   const p = await sql.begin(async (tx) => {
     const [p] = await tx`insert into projects (owner_id, title, format, aspect, language, mode, stage, brief, settings)
       values (${uid}, ${brief.prompt.slice(0, 80)}, ${brief.engineFormat}, ${brief.aspect}, ${brief.language}, 'vibe', 'writing', ${tx.json(brief as any)},
-              ${tx.json({ chain_clips: true, burn_subtitles: true })}) returning *`;
+              ${tx.json({ chain_clips: true, burn_subtitles: false })}) returning *`;
     const fee = await debit(tx, uid, config.credits.setupFeeUsd, 'setup_fee', p.id);
     if (fee) await tx`update projects set autopilot = ${tx.json({ setup_fee: fee })} where id = ${p.id}`;
     return p;

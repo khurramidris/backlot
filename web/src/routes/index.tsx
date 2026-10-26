@@ -44,7 +44,7 @@ const STEPS = [
   {
     n: "04",
     title: "A finished film out",
-    body: "Lip-synced dialogue, subtitles and a final edit. Fix any shot with a note.",
+    body: "Lip-synced dialogue, every shot joined into one episode, ready for your captions and music. Fix any shot with a note.",
   },
 ];
 

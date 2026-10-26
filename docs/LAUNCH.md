@@ -25,7 +25,7 @@ with your own keys, a price check, and the legal details. None of it is code.
 - **2K on your own GPUs:** it was sold but can't be made there (the recipe makes 768P). It's now offered only with
   MiniMax.
 - **GPU cost per shot:** each shot sent the previous shot along as a reference video, which doubles the work on your
-  own GPUs. It's now off there by default (`CHAIN_CLIPS`).
+  own GPUs. It's now off by default (`CHAIN_CLIPS`).
 - **Stuck GPU jobs:** a RunPod job that timed out kept running and billing. It's now cancelled.
 - **No content filter on your own H3:** MiniMax filters its own requests; your GPU doesn't. Anything a customer
   writes or uploads that reaches the video model unchanged now goes through a content check first.
