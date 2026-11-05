@@ -327,7 +327,7 @@ Downloads stay on GitHub for 90 days. After that, ask me to build new ones.
    - your **Anthropic API key** (Part A step 1). Click **Test**: it says if the key works.
    - your **MiniMax API key** (Part A step 2)
    - for video: pick **MiniMax's hosted H3** (simplest, uses the same MiniMax key) or **My H3 on RunPod** (then paste
-     your RunPod key and endpoint ID and click **Test**)
+     your RunPod key and endpoint ID and click **Test**; setting up that endpoint is in `docs/SELF-HOSTED-H3.md`)
    - **Longest film** is set to 120 seconds to keep a first test small and cheap. Leave it.
 3. Click **Save and start**. A window shows the steps while it starts (the first start takes a minute or two; with
    RunPod it also downloads a small helper once).

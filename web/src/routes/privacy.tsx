@@ -60,7 +60,10 @@ function Privacy() {
       <p>We use these service providers, and each gets only what it needs to do its job for us:</p>
       <ul>
         <li>
-          <strong>Supabase:</strong> sign-in, database and file storage.
+          <strong>Supabase:</strong> sign-in and our database.
+        </li>
+        <li>
+          <strong>Cloudflare:</strong> storage for your files (pictures, voices and videos).
         </li>
         <li>
           <strong>Railway:</strong> hosting for our servers.

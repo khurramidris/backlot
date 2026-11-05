@@ -1,6 +1,7 @@
-// Assembly: approved takes → one finished episode. Normalizes every clip to the same size,
-// frame rate and audio format, joins them, writes subtitles from the planned dialogue timing,
-// optionally lays a ducked music bed, and brings loudness to streaming level (-14 LUFS).
+// Assembly: approved takes → one finished episode. The clips are joined whole, in order: each is only brought to the
+// same size, frame rate and audio format so they can be joined, and the episode's loudness is set to streaming level
+// (-14 LUFS). Nothing is trimmed. Captions and music are the creator's to add; burned-in subtitles (timed from the
+// plan), fades and a ducked music bed remain options a cut can ask for.
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -88,7 +89,7 @@ export async function assembleCut(cutId: string, progress: (s: string) => Promis
   await sql`update cuts set status = 'running', error = null where id = ${cutId}`;
   const [ep] = await sql`select * from episodes where id = ${cut.episode_id}`;
   const [p] = await sql`select * from projects where id = ${cut.project_id}`;
-  const o: CutOptions = { burn_subtitles: p.settings?.burn_subtitles ?? true, fade: true, music_volume: 0.22, loudness: -14, ...parseCutOptions(cut.options, p.id) };
+  const o: CutOptions = { burn_subtitles: p.settings?.burn_subtitles ?? false, fade: false, music_volume: 0.22, loudness: -14, ...parseCutOptions(cut.options, p.id) };
   const shots = await sql`select s.*, t.file_key take_file, t.media take_media from shots s
     left join lateral (
       select file_key, media from takes where
@@ -143,14 +144,15 @@ export async function assembleCut(cutId: string, progress: (s: string) => Promis
     await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', joined]);
     const total = t;
 
+    // Subtitles only when a cut asks for them: then they're burned in and the .srt file comes with the cut.
     const portrait = H > W;
-    const srt = buildSrt(clips, portrait ? 30 : 42);
+    const srt = o.burn_subtitles ? buildSrt(clips, portrait ? 30 : 42) : '';
     const srtFile = join(dir, 'subs.srt');
-    await writeFile(srtFile, srt);
+    if (srt.trim()) await writeFile(srtFile, srt);
 
     await progress('Mixing and finishing');
     const vf: string[] = [];
-    if (o.burn_subtitles && srt.trim()) {
+    if (srt.trim()) {
       const fs = portrait ? 11 : 16, mv = portrait ? 40 : 22;
       vf.push(`subtitles=subs.srt${subtitleFontsDir()}:force_style='FontName=${config.ffmpeg.font},FontSize=${fs},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,Outline=1.6,Shadow=0,MarginV=${mv},Alignment=2,Bold=1'`);
     }
@@ -168,19 +170,20 @@ export async function assembleCut(cutId: string, progress: (s: string) => Promis
     af += `loudnorm=I=${o.loudness ?? -14}:TP=-1.5:LRA=11${o.fade ? `,afade=t=in:st=0:d=0.4,afade=t=out:st=${Math.max(0, total - 0.6).toFixed(2)}:d=0.6` : ''}[aout]`;
     const final = join(dir, 'final.mp4');
     args.push('-filter_complex', af, '-map', '0:v:0', '-map', '[aout]');
-    if (vf.length) args.push('-vf', vf.join(','));
-    args.push('-t', total.toFixed(3), '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-      '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', final);
+    // A plain join keeps the joined picture as it is (no second encode); subtitles or fades need one.
+    if (vf.length) args.push('-vf', vf.join(','), '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p');
+    else args.push('-c:v', 'copy');
+    args.push('-t', total.toFixed(3), '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', final);
     await ffmpeg(args, { timeoutMs: 60 * 60_000, cwd: dir }); // cwd: subtitles= takes a relative path (absolute Windows paths break its parser)
 
     const base = `projects/${p.id}/cuts/${cutId}`;
     const thumb = join(dir, 'poster.jpg');
     await thumbnail(final, thumb, 0.1);
     await storage.putFile(`${base}.mp4`, final, 'video/mp4');
-    await storage.putFile(`${base}.srt`, srtFile, 'application/x-subrip');
+    if (srt.trim()) await storage.putFile(`${base}.srt`, srtFile, 'application/x-subrip');
     await storage.putFile(`${base}.jpg`, thumb, 'image/jpeg');
     const info = await probe(final);
-    await sql`update cuts set status = 'done', file_key = ${base + '.mp4'}, srt_key = ${base + '.srt'}, thumb_key = ${base + '.jpg'},
+    await sql`update cuts set status = 'done', file_key = ${base + '.mp4'}, srt_key = ${srt.trim() ? base + '.srt' : null}, thumb_key = ${base + '.jpg'},
       duration = ${info.duration}, finished_at = now() where id = ${cutId}`;
     if (cut.kind === 'final') await sql`update episodes set status = 'assembled', updated_at = now() where id = ${ep.id}`;
     const [left] = await sql`select count(*)::int n from episodes where project_id = ${p.id} and status <> 'assembled'`;

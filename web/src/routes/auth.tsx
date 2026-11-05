@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -7,6 +8,7 @@ import { AuthCard } from "@/components/layout/AuthCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { googleSignInEnabled } from "@/lib/supabase";
 import {
   sendPasswordReset,
   signInWithEmail,
@@ -47,6 +49,12 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const { data: google } = useQuery({
+    queryKey: ["google-sign-in"],
+    queryFn: () => googleSignInEnabled(),
+    staleTime: Infinity,
+    retry: false,
+  });
 
   useEffect(() => {
     if (!loading && user) void navigate({ to: "/dashboard" });
@@ -109,7 +117,7 @@ function AuthPage() {
   ];
   const subtitle = {
     signin: "Continue to your videos.",
-    signup: "Start producing AI drama episodes.",
+    signup: "Start making films and clips.",
     forgot: "We'll email you a link to choose a new one.",
   }[mode];
 
@@ -195,15 +203,19 @@ function AuthPage() {
         </p>
       ) : (
         <>
-          <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="h-px flex-1 bg-border" />
-            or
-            <span className="h-px flex-1 bg-border" />
-          </div>
+          {google ? (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                or
+                <span className="h-px flex-1 bg-border" />
+              </div>
 
-          <Button variant="outline" className="w-full" onClick={handleGoogle} disabled={busy}>
-            Continue with Google
-          </Button>
+              <Button variant="outline" className="w-full" onClick={handleGoogle} disabled={busy}>
+                Continue with Google
+              </Button>
+            </>
+          ) : null}
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {mode === "signin" ? "No account yet?" : "Already have an account?"}{" "}

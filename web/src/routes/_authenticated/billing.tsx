@@ -170,7 +170,7 @@ function PlanOffer({ me, busy, onSubscribe }: { me: Me; busy: boolean; onSubscri
         <ul className="mt-6 space-y-3 text-sm">
           {[
             `${usd(me.plan.credits_usd)} of credits every month (${footageOf(me, me.plan.credits_usd)})`,
-            `${me.plan.storage_gb} GB of storage for your films`,
+            `${me.plan.storage_gb} GB of storage for your films and clips`,
             "Top up any time; top-up credit never expires",
             "Failed renders are refunded automatically",
             "Cancel any time",

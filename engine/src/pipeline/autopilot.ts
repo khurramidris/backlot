@@ -34,9 +34,9 @@ export async function runAutopilot(projectId: string, ctx: JobCtx): Promise<any 
   if (!p || p.mode !== 'vibe') return { skipped: 'not a vibe project' };
   const st = p.autopilot || {};
   switch (p.stage as Stage) {
-    case 'writing': { // develop → screenplay → script doctor, one step per run
+    case 'writing': { // pitch → bible → cards → scenes → notes → rewrites, one step per run
       const step = await writeStep(p.id, ctx);
-      if (!step.done) return again(0, step.progress);
+      if (!step.done) return again(step.wait || 0, step.progress);
       await setStage(p.id, 'breakdown');
       return again(0, 'Script written');
     }
@@ -109,8 +109,8 @@ async function rendering(p: any, st: any): Promise<any> {
         throw e;
       }
     }
-    await patchState(p.id, { render_queued: true });
-    return again(10, `Rendering ${todo.length} shots`);
+    await patchState(p.id, { render_queued: true }); // they render in story order (render.ts), so finished ones can be watched
+    return again(10, `Filming ${todo.length} shots`);
   }
 
   // The customer reviews the finished film, not every clip: the newest good take of each shot is used.
@@ -131,7 +131,13 @@ async function rendering(p: any, st: any): Promise<any> {
 
   const busy = shots.filter((s: any) => s.status === 'queued' || s.status === 'rendering').length;
   const done = shots.filter((s: any) => s.status === 'approved').length;
-  if (busy) return again(10, `Rendered ${done} of ${shots.length} shots`);
+  if (busy) return again(10, `Filmed ${done} of ${shots.length} shots`);
+  if (!done) { // nothing could be filmed (the video service is down, or every shot was refused): don't deliver a film of slates
+    const refused = shots.every((s: any) => s.status === 'blocked');
+    throw new PermanentError(refused
+      ? 'The content check refused every shot of this film, so nothing was filmed. You weren’t charged for video.'
+      : 'None of the shots could be filmed just now. You weren’t charged for video. Press Try again to film them again.', 'render_failed');
+  }
   await setStage(p.id, 'assembling', { cuts: null });
   return again(0, 'Editing');
 }

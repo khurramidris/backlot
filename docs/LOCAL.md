@@ -48,7 +48,8 @@ Want to click around for free first? The mock run in the README needs no keys at
 ## What it costs (rough)
 
 - Story, screenplay, cast and shot plan on Claude: about $1 to $3 per film at the defaults. `STORY_EFFORT=medium`
-  and `SCRIPT_DOCTOR=0` make it cheaper and a little less polished.
+  and `SCRIPT_DOCTOR=0` make it cheaper and a little less polished; `CLAUDE_MODELS` puts the many small scene and shot
+  calls on a cheaper model (see `docs/STORY-ENGINE.md`).
 - Images and voices: cents.
 - Video: your GPU time on RunPod. Set `RUNPOD_GPU_PRICE_PER_SECOND` and the Admin page shows what each film really cost you.
 
@@ -57,14 +58,15 @@ Want to click around for free first? The mock run in the README needs no keys at
 ```bash
 EVAL_CONFIRM=1 npm --prefix engine run eval:story:local -- --only 3
 ```
-This runs sample ideas through the writers' room, breakdown, direction and shot plans, and writes the scripts and
-shot prompts to `engine/data/eval/<time>/` so you can read them. About $1 to $2 per idea.
+This runs sample ideas through the writers' room, breakdown, direction and shot plans, and writes the takes, scene
+cards, scripts and shot prompts to `engine/data/eval/<time>/` so you can read them. About $1 to $3 per idea. Add
+`PROMPT_LOG_DIR=data/prompts` to also save every prompt exactly as the model received it.
 
 ## Your H3 endpoint has to speak our language
 
 The engine sends each shot to RunPod as `{"input": {"request": …, "upload": …}}` and expects
 `{"key", "seconds", "width", "height", "has_audio"}` back. The worker that does this is `gpu-worker/handler.py`,
-and the model plugs in at `gpu-worker/backends/h3.py` (still a stub in the repo). If your endpoint runs a
+and the model runs in `gpu-worker/backends/h3.py`. To set up that endpoint, follow `docs/SELF-HOSTED-H3.md`. If your endpoint runs a
 different handler, send me a sample request and response and I will write an adapter.
 
 ## Good to know

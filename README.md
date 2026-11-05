@@ -1,14 +1,14 @@
 # Backlot
 
 **Type a story, get a film.** A customer describes an idea in a sentence. Backlot writes the script, designs
-the cast and sets, plans the shots, shows the price, and then renders, edits and subtitles the finished
-video: microdramas, short films, web series and YouTube stories.
+the cast and sets, plans the shots, shows the price, and then renders the shots one by one (watch each as it
+lands) and joins them into the finished video: microdramas, short films, web series and YouTube stories.
 
 | | |
 |---|---|
 | `web/` | Product UI (React + Vite), served by the engine |
 | `engine/` | API, job queue, AI pipeline, FFmpeg, credits, subscriptions (Lemon Squeezy), storage quota |
-| `gpu-worker/` | The H3 video model on RunPod Serverless |
+| `gpu-worker/`, `docs/SELF-HOSTED-H3.md` | The H3 video model on RunPod Serverless, and how to set it up |
 | `docs/DEPLOY.md` | Supabase, RunPod, Lemon Squeezy and Railway setup, scaling, and the launch check |
 | `desktop/`, `docs/DESKTOP.md` | The desktop app: the whole studio in one installable window, with your own keys |
 | `docs/LOCAL.md` | Run it on your computer with the real providers |
@@ -34,7 +34,7 @@ To judge the real result with your own Anthropic, MiniMax and RunPod keys, see `
 npm test                                        # engine unit tests + web tests
 cd engine && DATABASE_URL=postgres://postgres@localhost:5432/<empty db> npm run e2e:vibe
                                                 # also: npm run e2e, npm run e2e:runpod (each needs an empty db)
-cd gpu-worker && python selftest.py
+cd gpu-worker && python selftest.py && python test_h3.py
 ```
 CI runs all of it on every push, then builds and smoke-tests the production image.
 

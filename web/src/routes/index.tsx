@@ -9,7 +9,7 @@ import { publicPlan } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 const DESCRIPTION =
-  "Describe a story in a sentence. Backlot writes, casts, films and edits it into a finished microdrama, short film, web series or YouTube video.";
+  "Describe a story in a sentence. Backlot writes, casts, films and edits it into a finished microdrama, short film, web series or YouTube video. Or turn text, a photo or a video into a quick clip.";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -44,7 +44,7 @@ const STEPS = [
   {
     n: "04",
     title: "A finished film out",
-    body: "Lip-synced dialogue, subtitles and a final edit. Fix any shot with a note.",
+    body: "Lip-synced dialogue, every shot joined into one episode, ready for your captions and music. Fix any shot with a note.",
   },
 ];
 
@@ -173,7 +173,9 @@ function Hero() {
           </p>
           <p className="mt-4 max-w-xl text-lg leading-relaxed text-foreground/75">
             Type a story, get a film. Microdramas, short films, web series and YouTube stories from
-            a single prompt. You approve the script and the price before anything is filmed.
+            a single prompt. You approve the script and the price before anything is filmed. Need
+            just one shot? Quick clips turn a line of text, a photo or a video into 5 to 15 seconds
+            of footage with sound.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
@@ -316,7 +318,8 @@ function Pricing() {
           <ul className="mt-6 space-y-3 text-sm">
             {[
               `${usd(plan.credits_usd)} of credits every month`,
-              `${plan.storage_gb} GB of storage for your films`,
+              `${plan.storage_gb} GB of storage for your films and clips`,
+              "Quick clips from text, a photo or a video",
               "Top-up credit packs any time, and they never expire",
               "Failed renders refunded automatically",
               "Cancel any time",

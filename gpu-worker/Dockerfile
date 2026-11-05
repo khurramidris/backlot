@@ -1,16 +1,25 @@
-# RunPod Serverless worker image. Build from this folder:
+# RunPod Serverless worker image with the self-hosted H3 stack (ComfyUI + Kablex Ref2VA-VSA). Build from this folder:
 #   docker build -t <registry>/backlot-gpu-worker:<tag> gpu-worker
-# Model weights are NOT baked in: mount a RunPod network volume at /runpod-volume and set MODEL_DIR.
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+# (GitHub builds and publishes it for you: .github/workflows/gpu-image.yml.)
+# Model weights are NOT baked in: they live on a RunPod network volume mounted at /runpod-volume (MODEL_DIR).
+# The base is pytorch/pytorch:2.11.0-cuda13.0-cudnn9-devel, pinned by digest: the Sol attention kernel needs this
+# exact Torch/CUDA build, and the host's driver must support CUDA 13.0.
+FROM pytorch/pytorch@sha256:6e8a7a6dedf900096f90190f66f988e7e658cda4f1e6cbc7c17e3a38980a4f89
 
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 MODEL_BACKEND=h3 MODEL_DIR=/runpod-volume/h3
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ffmpeg ca-certificates \
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MODEL_BACKEND=h3 MODEL_DIR=/runpod-volume/h3 COMFY_DIR=/opt/ComfyUI
+RUN apt-get update && apt-get install -y --no-install-recommends git ffmpeg ca-certificates python3-venv \
     && rm -rf /var/lib/apt/lists/*
+# The base image's Python is system-managed (PEP 668). Install on top of its Torch through a venv that can see it.
+RUN python3 -m venv --system-site-packages /opt/venv
+ENV VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
+COPY h3 ./h3
+RUN bash h3/install.sh
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
-COPY handler.py selftest.py ./
+RUN pip install --no-cache-dir -c /opt/constraints.txt -r requirements.txt
+COPY handler.py selftest.py test_h3.py ./
 COPY backends ./backends
 
-CMD ["python3", "-u", "handler.py"]
+CMD ["python", "-u", "handler.py"]

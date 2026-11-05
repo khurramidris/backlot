@@ -29,15 +29,18 @@ Everything below is a one-time setup. After it, every push to `main` that passes
 3. **Project Settings → API**: copy the Project URL → `SUPABASE_URL`, and the anon/publishable key →
    `SUPABASE_ANON_KEY`.
 4. **Connect → Session pooler**: copy the connection string → `DATABASE_URL`. The engine creates its tables on
-   first boot.
+   first boot, and encrypts the connection by itself (an `sslmode` in the URL overrides that).
 5. **Storage**: create a **private** bucket `backlot`. **Storage → S3 connection**: create access keys →
    `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET=backlot`,
    `STORAGE_DRIVER=s3`.
 
-## 2. RunPod (the video model)
+## 2. Video: MiniMax now, RunPod later
 
-Follow `gpu-worker/README.md`:
-1. Build and push the `gpu-worker` image.
+Launch with MiniMax's hosted H3: `VIDEO_PROVIDER=minimax` and `MINIMAX_API_KEY` (the same key makes the cast and set
+images and the voices). There is nothing else to set up.
+
+Then move video to your own GPUs on RunPod. Follow `docs/SELF-HOSTED-H3.md` (plain language) or `gpu-worker/README.md`:
+1. GitHub builds and publishes the `gpu-worker` image (`.github/workflows/gpu-image.yml`).
 2. Put the H3 weights on a network volume.
 3. Create a Serverless endpoint.
    - To prove the whole path before the model is ready, set `MODEL_BACKEND=fake`: it renders test patterns.
@@ -52,6 +55,8 @@ Follow `gpu-worker/README.md`:
 | `RUNPOD_WARM_MINUTES` | 15 | How long after the last render to stay warm before scaling to 0 |
 | `RUNPOD_JOBS_PER_WORKER` | 2 | Queue depth per GPU before the floor rises |
 | `VIDEO_MAX_INFLIGHT` | 10 | Renders sent to RunPod at once (≈ max workers × 2) |
+| `RENDERS_PER_PROJECT` | 1 | Clips of one film rendering at once, in story order (1 = one by one, watched as they land) |
+| `CHAIN_CLIPS` | 0 | 1 sends each scene's previous clip as a reference video: better matching, but its seconds are billed as input |
 | `RUNPOD_MANAGE_SCALING` | 0, then 1 | Start at 0, watch `/v1/admin/capacity`, then let the controller act |
 | `RUNPOD_GPU_PRICE_PER_SECOND` | your rate | Records real GPU cost per clip, for margin reports |
 
@@ -95,9 +100,10 @@ How the money works:
 - Creating, rendering, retakes and uploads need an active plan: `active`, `on_trial`, `past_due` (grace while
   Lemon Squeezy retries the card), or `cancelled` until its `ends_at`. When the subscription expires, the rest
   of the plan credit goes too. Top-ups stay.
-- **Storage**: every project file is counted per customer against `PLAN_STORAGE_GB` (50). When a customer is
-  over it, new work is refused with "You're using 50.3 of 50 GB. Delete old videos to make room." Renders
-  already running finish. Deleting a video deletes its files.
+- **Storage**: every project file is counted per customer against `PLAN_STORAGE_GB` (10). Nothing is deleted
+  automatically: files stay until the customer deletes them (on Cloudflare R2, a full 10 GB costs about $0.15 a
+  month). When a customer is over it, new work is refused with "You're using 10.1 of 10 GB. Delete old videos to
+  make room." Renders already running finish. Deleting a video deletes its files.
 - Webhooks are verified (`X-Signature`) and applied once: `payments` rows are keyed `ls:invoice:<id>` and
   `ls:order:<id>`, so Lemon Squeezy's retries never credit twice.
 - **Refunds** issued in the Lemon Squeezy dashboard don't take credit back automatically. If you refund a
@@ -113,6 +119,11 @@ How the money works:
 3. **Settings → Networking**: generate a domain, or add your own. Use it for `PUBLIC_BASE_URL`, `APP_URL`
    and `CORS_ORIGINS`.
 4. Deploy. `https://<your-domain>/health` should return `{"ok":true,"mock":false}`.
+
+**Deploying while customers work:** a deploy gives running steps 20 seconds to finish, then hands what's left back to
+the queue, and the new version carries on at once. Railway only waits for this if you give it the time: add the
+variable `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`. Without it, or if an instance is killed outright, the cut-off steps
+are picked up again within about 3 minutes. Either way deploying mid-film delays it but loses nothing.
 
 **Scaling the app itself:** one instance handles the API, the job queue and FFmpeg editing. When editing
 backs up, add replicas. The queue is safe to share between instances. To separate the API from background
@@ -133,17 +144,50 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
 9. As an admin (`ADMIN_USER_IDS`), open `/v1/admin/capacity`: RunPod workers and the controller's decision.
 
 ## Operations
-- **Admin** (`/admin`, users in `ADMIN_USER_IDS`) shows:
-  - the last 7 days: paying customers and monthly revenue, accounts, films finished and failed, payments,
-    and provider spend by kind
-  - recent failures
+- **Admin** (`/admin`, users in `ADMIN_USER_IDS`) is the company dashboard, for the last 7 days, 30 days,
+  90 days or 12 months:
+  - money: revenue (plans and top-ups), costs (AI and GPU, fixed bills, estimated payment fees), profit and
+    margin, and monthly recurring revenue
+  - money in and out per day, with a table view
+  - where the money goes: Claude (writing and content checks), pictures, video, voices, payment fees, each fixed
+    bill, video cost per second against the price, credits spent and credits still owed to customers
+  - health right now: queue, background jobs, storage, RunPod workers
+  - customers: accounts, new, active, paying, cancelling, payment problems
+  - what was made: films, clips, renders, failures, content refusals, average render time
+  - problems (failed films and renders, refusals) and the top customers by spend
   - customer search by email or user id
+
+  For true profit, list your monthly bills in `FIXED_COSTS_MONTHLY` (`Railway:20,Supabase:25,RunPod storage:5.25`).
+  Payment fees are estimated with `PAYMENT_FEE_PCT` (5) and `PAYMENT_FEE_USD` (0.50), Lemon Squeezy's standard
+  rate. The same report is `GET /v1/admin/business?days=30`.
   - each customer's detail: plan, credits, storage, films with charged vs provider cost, payments and the credit
     ledger, plus credit grants and deductions (with a note; top-up bucket; ledger reasons
     `admin_grant` / `admin_deduct`)
 - **Setup check** (`/setup`) tests every production setting and service.
+- **Story engine** (how it works and how to judge a change: `docs/STORY-ENGINE.md`):
+
+  | Variable | Start with | Meaning |
+  |---|---|---|
+  | `CLAUDE_MODEL` | `claude-opus-5-5` | Every writing and planning step |
+  | `CLAUDE_MODELS` | empty | Per-step models, e.g. `scene:claude-sonnet-5-5,judge:claude-sonnet-5-5,shots:claude-sonnet-5-5` |
+  | `STORY_EFFORT` / `PLANNING_EFFORT` | `high` / `medium` | Thinking depth for the story steps / the many shot and judge calls |
+  | `SCRIPT_DOCTOR` | 1 | The script editor's notes and the rewrites of the scenes it flags |
+  | `KEY_SCENE_DRAFTS` | 2 | Drafts of each episode's opening and ending; a judge keeps the best (1 = off) |
+  | `CLAUDE_STRUCTURED_OUTPUTS` / `CLAUDE_THINKING` | 1 / 1 | Set 0 for a model or endpoint without them |
+  | `PROMPT_LOG_DIR` | unset | Write every prompt to this folder, to read exactly what the model was sent |
 - **Error alerts:** set `SENTRY_DSN`. It reports API errors (5xx), jobs that fail on their last attempt, and
   unhandled rejections.
+- **Content checks** (`MODERATION`, on by default): before anything is filmed, Claude's fast model checks quick-clip
+  prompts and uploads, uploaded character and set pictures, and shot prompts a customer rewrote by hand (Claude
+  follows the same rules when it writes the others). It refuses nudity and sex, minors in any sexual or abusive
+  context, celebrities and politicians (deepfakes), real people in sexual, violent or deceptive scenes, gore, hate,
+  self-harm and serious crime. Drama, thrillers and non-gory action pass. A refusal is shown to the customer and
+  never charged. Verdicts are cached, so a retake costs nothing extra. The cost shows on `/admin` under "content
+  checks".
+- **Quick clips** are 5 to 15 seconds (`CLIP_MIN_SECONDS` sets the shortest). On your own RunPod H3,
+  image-to-video pins the picture as the first frame; if those clips look wrong, set
+  `CLIP_IMAGE_PROVIDER=minimax` to send just that mode to MiniMax. `CHAIN_CLIPS` (off) decides whether films send
+  each scene's previous shot along for continuity: billed as input seconds on MiniMax, double the GPU work on RunPod.
 - **Rate limits** are per customer and in memory, per instance:
   - 600 API requests a minute
   - 30 new videos an hour

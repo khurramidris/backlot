@@ -86,7 +86,7 @@ const words = (s: string) => (s.match(/[\p{L}\p{N}'’]+/gu) || []).length;
 
 /** Words per second of spoken dialogue, and seconds of screen time per action word. */
 export const SPEECH_WPS = 2.4;
-const ACTION_SPW = 0.32;
+export const ACTION_SPW = 0.32;
 
 /** Map raw cue names ("DR. NAQVI", "ASMA", "BILAL") to bible ids, using ids, full names and first/last names. */
 export function characterMatcher(bible: BibleCharacter[]) {
@@ -158,6 +158,32 @@ export function dialogueOf(sceneBody: string, bible: BibleCharacter[] = []) {
     prev = e.t;
   }
   return out;
+}
+
+export interface SceneElement { kind: 'action' | 'line'; who?: string; paren?: string; text: string }
+
+const oneLine = (s: any) => String(s || '').replace(/\s+/g, ' ').trim();
+
+/**
+ * One scene as Fountain, from its heading and elements. The writers' room writes elements and code renders them,
+ * so generated scripts always parse the same way: an action that would read as a heading, transition or shot is
+ * forced with "!", a cue the parser wouldn't recognise is forced with "@".
+ */
+export function sceneFountain(heading: string, elements: SceneElement[]): string {
+  const out = [oneLine(heading).replace(/^\./, '')];
+  for (const e of elements) {
+    const text = oneLine(e.text);
+    if (!text) continue;
+    if (e.kind === 'line') {
+      const cue = oneLine(e.who).toUpperCase();
+      const paren = oneLine(e.paren).replace(/^\(+|\)+$/g, '').trim();
+      out.push('', isCharCue(cue) ? cue : `@${cue}`, ...(paren ? [`(${paren})`] : []), text);
+    } else {
+      const special = RX_HEADING.test(text) || RX_TRANS.test(text) || (text === text.toUpperCase() && RX_SHOT.test(text)) || /^([.>#=@~!]|\[\[)/.test(text);
+      out.push('', special ? `!${text}` : text);
+    }
+  }
+  return out.join('\n');
 }
 
 export { words };

@@ -1,12 +1,16 @@
 // Story-engine quality run: sample ideas → writers' room → breakdown → director's plan → shot plans, then a
-// report of what came out. Use it to judge a prompt change on real output instead of guessing.
+// report of what came out. Use it to judge a prompt change on real output instead of guessing, and to see how far
+// the engine carries a cheaper model: run it once per model (CLAUDE_MODEL, or CLAUDE_MODELS for single steps).
 //
 //   Mock plumbing check (free):   DATABASE_URL=postgres:///evaldb MOCK_PROVIDERS=1 npx tsx scripts/eval-story.ts
 //   Real run (costs money):       DATABASE_URL=… ANTHROPIC_API_KEY=… EVAL_CONFIRM=1 npx tsx scripts/eval-story.ts [--only 3]
+//   See every prompt as sent:     add PROMPT_LOG_DIR=data/prompts (works in mock runs too, for free)
 //
-// A real run makes about 8 to 10 Claude calls per idea, roughly $1–2 each at Opus prices with high effort.
-// Images and video are not generated. Output: data/eval/<time>/report.md plus every treatment, script and
-// shot plan, so a person can read them. Use an empty database; it can be deleted afterwards.
+// A real run makes about 20 to 30 Claude calls per idea (most of them small scene and shot calls), roughly $1–3 per
+// idea at Opus prices with high effort. Images and video are not generated. Output: data/eval/<time>/report.md plus
+// every take, bible, scene card, script and shot plan, so a person can read them. Use an empty database; it can be
+// deleted afterwards. The critic's scores are the model grading its own room's work: compare them across runs, and
+// read the scripts.
 
 process.env.ALLOW_DEV_TOKENS ??= process.env.MOCK_PROVIDERS ? '1' : '';
 process.env.FILE_SIGNING_SECRET ??= 'eval-only-signing-secret-not-used-for-serving';
@@ -67,7 +71,13 @@ for (const [n, idea] of IDEAS.slice(0, only).entries()) {
     const [{ cost }] = await sql`select coalesce(sum(cost_usd), 0)::float cost from usage_events where project_id = ${p.id}`;
     const sb = proj.story_bible || {};
 
-    await writeFile(join(dir, 'treatment.json'), JSON.stringify(sb.treatment, null, 2));
+    await writeFile(join(dir, 'bible.json'), JSON.stringify(sb.treatment, null, 2));
+    const q0 = sb.quality || {};
+    await writeFile(join(dir, 'takes.md'), (q0.concepts || []).map((c: any, i: number) => {
+      const sc = (q0.choice?.scores || []).find((x: any) => +x.concept === i);
+      return `## ${i === q0.choice?.chosen ? '✔ ' : ''}Take ${i}: ${c.title}\n${c.logline}\nHook: ${c.hook}\nTurn: ${c.turn}\nEnding: ${c.ending}${sc ? `\nScores: ${['fidelity', 'hook', 'stakes', 'specificity', 'surprise', 'renderable'].map((k) => `${k} ${sc[k]}`).join(', ')}` : ''}`;
+    }).join('\n\n') + (q0.choice?.notes?.length ? `\n\n## Development notes\n${q0.choice.notes.map((n: string) => `- ${n}`).join('\n')}` : ''));
+    await writeFile(join(dir, 'outline.md'), (sb.outline || []).map((o: any) => `# Episode ${o.episode}\n\n${o.scenes.map((c: any, i: number) => `## ${i + 1}. ${c.heading} (${c.seconds}s) [${c.characters.join(', ')}]\nPurpose: ${c.purpose}\nWants: ${c.objectives.map((x: any) => `${x.who}: ${x.wants} (${x.tactic})`).join('; ')}\nUnderneath: ${c.subtext}\nTurn: ${c.turn} (${c.value})\nKey image: ${c.key_image}\nExit: ${c.exit}`).join('\n\n')}`).join('\n\n'));
     await writeFile(join(dir, 'script.fountain'), eps.map((e: any) => `# Episode ${e.idx}: ${e.title}\n\n${e.script}`).join('\n\n'));
     await writeFile(join(dir, 'design.md'), assets.map((a: any) => `## ${a.kind}: ${a.name}\n${a.description}${a.meta?.layout ? `\nLayout: ${a.meta.layout}` : ''}`).join('\n\n'));
     await writeFile(join(dir, 'direction.json'), JSON.stringify(eps[0].direction, null, 2));
@@ -80,11 +90,14 @@ for (const [n, idea] of IDEAS.slice(0, only).entries()) {
     const q = sb.quality || { issues: [], episodes: [], doctor_notes: [] };
     const chars = (sb.characters || []).map((c: any) => c.name);
     names.push(...chars.map((c: string) => c.split(' ')[0]));
-    rows.push(`| ${n + 1} | ${proj.title} | ${(sb.treatment?.genre || '').slice(0, 24)} | ${q.episodes.map((e: any) => `${e.seconds}/${e.target}s`).join(', ')} | ${q.issues.length} | ${q.doctor_notes.length} | ${shots.length} | ${beats.length ? (shots.reduce((t: number, s: any) => t + s.duration, 0) / shots.length).toFixed(1) : '-'}s | ${distinct((b) => b.shot)} / ${distinct((b) => b.camera || 'static')} | ${warnings.filter((w: string) => /added/.test(w)).length} | $${cost.toFixed(2)} | ${((Date.now() - t0) / 1000).toFixed(0)}s | ${chars.join(', ')} |`);
-    await writeFile(join(dir, 'quality.json'), JSON.stringify({ quality: q, warnings, concepts: proj.autopilot?.writing?.concepts }, null, 2));
+    const sc = q.scores || {};
+    const critic = ['hook', 'turns', 'escalation', 'dialogue', 'specificity', 'ending', 'fidelity'].map((k) => sc[k] ?? '-').join('/');
+    const kept = (q.doctor_notes || []).filter((x: string) => /^E\d+ scene/.test(x)).length;
+    rows.push(`| ${n + 1} | ${proj.title} | ${(sb.treatment?.genre || '').slice(0, 24)} | ${q.episodes.map((e: any) => `${e.seconds}/${e.target}s`).join(', ')} | ${q.issues.length} | ${critic} | ${kept} | ${shots.length} | ${beats.length ? (shots.reduce((t: number, s: any) => t + s.duration, 0) / shots.length).toFixed(1) : '-'}s | ${distinct((b) => b.shot)} / ${distinct((b) => b.camera || 'static')} | ${warnings.filter((w: string) => /added/.test(w)).length} | $${cost.toFixed(2)} | ${((Date.now() - t0) / 1000).toFixed(0)}s | ${chars.join(', ')} |`);
+    await writeFile(join(dir, 'quality.json'), JSON.stringify({ quality: q, warnings }, null, 2));
     console.log(`  ✓ "${proj.title}": ${shots.length} shots, ${q.issues.length} open issues, $${cost.toFixed(2)}`);
   } catch (e: any) {
-    rows.push(`| ${n + 1} | FAILED: ${String(e.message).slice(0, 80)} | | | | | | | | | | | |`);
+    rows.push(`| ${n + 1} | FAILED: ${String(e.message).slice(0, 80)} | | | | | | | | | | | | |`);
     console.log(`  ✗ ${e.message}`);
   }
 }
@@ -92,17 +105,18 @@ for (const [n, idea] of IDEAS.slice(0, only).entries()) {
 const dupes = [...names.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map<string, number>())].filter(([, c]) => c > 1);
 const report = `# Story engine run, ${new Date().toISOString()}
 
-Model ${config.mock ? 'mock' : config.anthropic.model}, effort ${config.anthropic.effort} (planning ${config.anthropic.planningEffort}), script doctor ${config.anthropic.scriptDoctor ? 'on' : 'off'}.
+Model ${config.mock ? 'mock' : config.anthropic.model}${Object.keys(config.anthropic.models).length ? ` (per step: ${Object.entries(config.anthropic.models).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}, effort ${config.anthropic.effort} (planning ${config.anthropic.planningEffort}), polish ${config.anthropic.scriptDoctor ? 'on' : 'off'}, ${config.anthropic.keyDrafts} draft(s) of openings and endings, structured outputs ${config.anthropic.structured ? 'on' : 'off'}, thinking ${config.anthropic.thinking ? 'on' : 'off'}.
 
-| # | Title | Genre | Runtime / target | Open issues | Doctor fixes | Shots | Avg shot | Sizes / moves used | Actions added by code | LLM cost | Time | Characters |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| # | Title | Genre | Runtime / target | Open issues | Critic: hook/turns/escalation/dialogue/specificity/ending/fidelity | Rewrites kept | Shots | Avg shot | Sizes / moves used | Actions added by code | LLM cost | Time | Characters |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 ${rows.join('\n')}
 
 **Repeated first names across stories:** ${dupes.length ? dupes.map(([n, c]) => `${n} ×${c}`).join(', ') : 'none'}
 
-How to read it: fewer open issues and fewer actions added by code are better; more sizes and moves used means more varied
-direction; repeated names or near-identical titles across stories mean the engine is converging. Read the scripts
-themselves in each folder: the numbers only point at where to look.
+How to read it: fewer open issues and fewer actions added by code are better; higher critic scores are better (the
+model grades its own room, so compare runs rather than trust one number); more sizes and moves used means more varied
+direction; repeated names or near-identical titles across stories mean the engine is converging. Read takes.md,
+outline.md and the scripts in each folder: the numbers only point at where to look.
 `;
 await writeFile(join(OUT, 'report.md'), report);
 console.log(`\n${report}\nWritten to ${OUT}`);

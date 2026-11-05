@@ -83,15 +83,23 @@ export async function preflight(): Promise<Check[]> {
   await run('Storage', 'Write, read, delete', async () => {
     const key = `preflight/${Date.now()}.txt`;
     await storage.put(key, Buffer.from('backlot preflight'), 'text/plain');
-    const back = (await storage.get(key)).toString();
-    await storage.del(key);
-    return back === 'backlot preflight' ? ['ok', 'A test file was written, read back and deleted.'] : ['fail', 'The file read back was different.'];
+    try {
+      if ((await storage.get(key)).toString() !== 'backlot preflight') return ['fail', 'The file read back was different.'];
+      // Browsers load every image and video, and MiniMax fetches reference images, through signed links: try one.
+      if (config.storage.driver !== 's3' && !https(config.publicBaseUrl)) return ['ok', 'A test file was written, read back and deleted.'];
+      const r = await fetch(await storage.url(key, 300)).catch(() => null);
+      if (!r?.ok || (await r.text()) !== 'backlot preflight') {
+        return ['fail', `A signed link to the test file didn’t work (${r ? `answer ${r.status}` : 'no answer'}), so videos and images won’t load. Check S3_ENDPOINT and S3_REGION (Cloudflare R2, or Supabase → Storage → S3 connection) and that the bucket exists.`];
+      }
+      return ['ok', 'A test file was written, read back, downloaded through a signed link and deleted.'];
+    } finally { await storage.del(key); }
   });
 
   // ── AI ──
+  const models = [...new Set([config.anthropic.model, config.anthropic.fastModel, ...Object.values(config.anthropic.models)])];
   await run('AI writing (Anthropic)', `Model ${config.anthropic.model}`, async () => {
     if (!config.anthropic.apiKey) return ['fail', 'Set ANTHROPIC_API_KEY (console.anthropic.com → API keys).'];
-    for (const model of [config.anthropic.model, config.anthropic.fastModel]) {
+    for (const model of models) {
       const r = await fetch(`${config.anthropic.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': config.anthropic.apiKey, 'anthropic-version': '2023-06-01' },
@@ -99,10 +107,10 @@ export async function preflight(): Promise<Check[]> {
       });
       if (!r.ok) {
         const t = (await r.text()).slice(0, 200);
-        return ['fail', r.status === 401 ? 'The API key is wrong.' : r.status === 404 ? `Model "${model}" not found: check CLAUDE_MODEL / CLAUDE_FAST_MODEL.` : `Anthropic answered ${r.status}: ${t}. If it mentions credit, add credit in the Anthropic console.`];
+        return ['fail', r.status === 401 ? 'The API key is wrong.' : r.status === 404 ? `Model "${model}" not found: check CLAUDE_MODEL / CLAUDE_FAST_MODEL / CLAUDE_MODELS.` : `Anthropic answered ${r.status}: ${t}. If it mentions credit, add credit in the Anthropic console.`];
       }
     }
-    return ['ok', `Key works for ${config.anthropic.model} and ${config.anthropic.fastModel}.`];
+    return ['ok', `Key works for ${models.join(', ')}.`];
   });
 
   const needsMinimax = config.images.provider === 'minimax' || config.videoProvider === 'minimax';

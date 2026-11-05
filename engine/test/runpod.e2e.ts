@@ -18,6 +18,7 @@ process.env.RUNPOD_WARM_MINUTES = '0';
 process.env.RUNPOD_JOBS_PER_WORKER = '1';
 process.env.RUNPOD_MAX_WORKERS = '3';
 process.env.RUNPOD_CAPACITY_TICK_SECONDS = '1';
+process.env.RENDERS_PER_PROJECT = '3'; // one project fills a queue deep enough to test the controller (the product default is 1)
 process.env.PORT ??= '8811';
 process.env.PUBLIC_BASE_URL ??= `http://localhost:${process.env.PORT}`;
 process.env.STORAGE_DIR ??= './data/runpod-files';
@@ -101,9 +102,49 @@ await until('second project ready', async () => (await stage(p2.id)).project.sta
 const before = fake.state.submitted;
 await api(A, 'POST', `/v1/projects/${p2.id}/produce`, {});
 await until('renders running on RunPod', async () => fake.state.submitted > before && [...fake.state.jobs.values()].some((j) => j.status === 'IN_PROGRESS'));
+const [{ waiting }] = await sql`select count(*)::int waiting from takes where project_id = ${p2.id} and status = 'pending'`;
+const { capacityTick } = await import('../src/capacity.js');
+const tick = await capacityTick();
+assert.ok(waiting > 3 && /\b3 renders can run now\b/.test(tick.progress || ''), `clips waiting their turn keep no GPU warm (${waiting} waiting; ${tick.progress})`);
+log(`  ✓ ${waiting} clips waiting their turn; the controller counts only the 3 that can run`);
 await api(A, 'DELETE', `/v1/projects/${p2.id}`);
 assert.ok(fake.state.cancelled.length > 0, 'running RunPod jobs were cancelled');
 log(`  ✓ ${fake.state.cancelled.length} RunPod job(s) cancelled`);
+
+log('\n5. A render that runs past the time limit is cancelled on RunPod');
+const { config } = await import('../src/config.js');
+config.minimax.taskTimeoutMinutes = 0.05; // 3 seconds; the fake still holds jobs for 2 minutes
+const cancelledBefore = fake.state.cancelled.length;
+await api(A, 'POST', `/v1/shots/${s0.id}/retake`, { prompt: s0.prompt });
+const timedOut = await until('take failed with a timeout', async () => {
+  const [t] = await sql`select * from takes where shot_id = ${s0.id} order by n desc limit 1`;
+  return t.status === 'failed' && t.error_code === 'timeout' && t;
+});
+assert.ok(fake.state.cancelled.slice(cancelledBefore).includes(timedOut.provider_task_id), 'the timed-out RunPod job was cancelled');
+log('  ✓ the GPU stops working on a clip we gave up on');
+
+log('\n6. Our own GPUs: no 2K, no previous-shot clips by default, and quick clips reach the worker');
+config.minimax.taskTimeoutMinutes = 30; fake.state.holdMs = 0;
+const storyJobs = [...fake.state.jobs.values()].filter((j) => j.input.request.content.some((c: any) => c.role === 'reference_image'));
+assert.ok(storyJobs.length > 0 && storyJobs.every((j) => !j.input.request.content.some((c: any) => c.role === 'reference_video')),
+  'CHAIN_CLIPS off by default: no previous-shot clip goes to our own GPUs');
+const twoK = await api(A, 'POST', `/v1/shots/${s0.id}/render`, { resolution: '2K' }, [400]);
+assert.match(twoK.error.message, /768P/);
+const { ffmpeg: ff } = await import('../src/media/ffmpeg.js');
+await ff(['-f', 'lavfi', '-i', 'color=c=green:s=640x480', '-frames:v', '1', './data/runpod-out/frame.png']);
+const fd = new FormData();
+for (const [k, v] of Object.entries({ mode: 'image', prompt: 'The green field ripples in the wind.', seconds: '5', aspect: '16:9', consent: 'true' })) fd.append(k, v);
+fd.append('images', new Blob([new Uint8Array(await (await import('node:fs/promises')).readFile('./data/runpod-out/frame.png'))], { type: 'image/png' }), 'frame.png');
+const cr = await fetch(`${base}/v1/clips`, { method: 'POST', headers: { authorization: `Bearer dev:${A}` }, body: fd });
+assert.equal(cr.status, 201, await cr.clone().text());
+const { project: clipProject } = await cr.json() as any;
+const clipDone = await until('clip rendered on RunPod', async () => { const d = await api(A, 'GET', `/v1/projects/${clipProject.id}`); return d.project.stage === 'done' && d; });
+const job = [...fake.state.jobs.values()].at(-1)!;
+const ff0 = job.input.request.content.find((c: any) => c.role === 'first_frame');
+assert.ok(ff0 && (await fetch(ff0.image_url.url)).ok, 'the worker gets the picture as the first frame, at a link it can download');
+assert.equal((await sql`select provider from takes where project_id = ${clipProject.id}`)[0].provider, 'runpod');
+assert.ok(clipDone.clip.takes[0].url);
+log('  ✓ 2K refused with a clear message; no reference clips by default; an image clip renders on RunPod with its first frame');
 
 log('\nALL RUNPOD CHECKS PASSED');
 fake.close();

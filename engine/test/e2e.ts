@@ -141,9 +141,9 @@ for (const e of episodes) {
 
   // Approve the newest good take of every shot.
   for (const s of shots) { const ok = s.takes.filter((t: any) => t.status === 'succeeded'); await api('POST', `/v1/takes/${ok[ok.length - 1].id}/approve`); }
-  // Customer changes their mind on one shot: retake with a note. If the shot before it (same scene)
-  // is approved, that clip goes to H3 as a reference video for continuity.
-  const target = shots.find((s: any) => s.chain_prev) || shots[1] || shots[0];
+  // Customer changes their mind on one shot: retake with a note. The approved shot before it is not sent along
+  // as a reference video (CHAIN_CLIPS is off): its seconds would be billed as input on every render.
+  const target = shots[1] || shots[0];
   await api('POST', `/v1/shots/${target.id}/retake`, { note: 'hold longer on her face before she speaks' });
   await waitJobs(pid, `retake shot ${target.code}`);
   ({ shots } = await api('GET', `/v1/episodes/${e.id}/shots`));
@@ -151,7 +151,7 @@ for (const e of episodes) {
   const newest = again.takes[again.takes.length - 1];
   assert.equal(newest.status, 'succeeded', 'retake rendered');
   assert.equal(again.status, 'review', 'retake puts the shot back in review');
-  if (target.chain_prev) assert.ok(newest.request.refs.some((r: any) => r.role === 'reference_video'), 'previous approved clip sent as reference video');
+  assert.ok(!newest.request.refs.some((r: any) => r.role === 'reference_video'), 'the previous clip is never sent along');
   await api('POST', `/v1/takes/${newest.id}/approve`);
 
   const { cut } = await api('POST', `/v1/episodes/${e.id}/cuts`, { kind: 'final', options: { burn_subtitles: true } });
@@ -174,7 +174,8 @@ if (process.env.FAKE_URL) {
   const st = await (await fetch(process.env.FAKE_URL + '/__stats')).json();
   log('\nFake provider stats:', JSON.stringify(st));
   assert.equal(st.violations.length, 0, 'no request broke the documented MiniMax/Anthropic rules');
-  assert.ok(st.rate_limited === 1 && st.subject_refs > 0 && st.ref_audio > 0 && st.ref_video > 0, 'rate-limit retry, identity refs and voice refs all exercised');
+  assert.ok(st.rate_limited === 1 && st.subject_refs > 0 && st.ref_audio > 0, 'rate-limit retry, identity refs and voice refs all exercised');
+  assert.equal(st.ref_video, 0, 'no clip was sent the one before it');
 }
 log(`\nALL CHECKS PASSED · project ${pid}`);
 process.exit(0);

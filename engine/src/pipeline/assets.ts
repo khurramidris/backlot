@@ -11,7 +11,8 @@ import { voiceDesign, ProviderError } from '../providers/minimax.js';
 import { mockVoice } from '../providers/mock.js';
 import { recordUsage } from '../usage.js';
 import { paid, requireCredit } from '../billing.js';
-import { trimAudio, probe } from '../media/ffmpeg.js';
+import { trimAudio, probe, ffmpeg } from '../media/ffmpeg.js';
+import { moderate, refusal } from '../moderation.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
@@ -226,6 +227,19 @@ export async function approveAsset(assetId: string, o: { covered?: boolean } = {
   return a;
 }
 
+/** An uploaded picture goes to the video model as a reference, so it's checked like any other customer content. */
+async function checkUpload(a: any, data: Buffer, uid: string) {
+  const dir = await mkdtemp(join(tmpdir(), 'upcheck-'));
+  try {
+    const raw = join(dir, 'in'), small = join(dir, 'small.jpg');
+    await writeFile(raw, data);
+    await ffmpeg(['-i', raw, '-vf', "scale='min(1024,iw)':'min(1024,ih)':force_original_aspect_ratio=decrease", '-frames:v', '1', '-q:v', '4', small])
+      .catch(() => { throw new PermanentError('The picture couldn’t be read. Use a JPEG, PNG or WebP.', 'bad_input'); });
+    const v = await moderate({ ownerId: uid, projectId: a.project_id, text: `Reference picture uploaded for a ${a.kind}: ${a.name}`, images: [{ mime: 'image/jpeg', data: await readFile(small) }] });
+    if (!v.allowed) throw refusal(v);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
 /** Store a user-supplied file as the asset (an actor photo, a real location, a recorded voice). */
 export async function uploadAsset(assetId: string, data: Buffer, mime: string, uid: string, consent: boolean) {
   const [a] = await sql`select * from assets where id = ${assetId}`;
@@ -244,6 +258,7 @@ export async function uploadAsset(assetId: string, data: Buffer, mime: string, u
       await storage.put(key, await readFile(out), 'audio/mpeg'); mime = 'audio/mpeg';
     } finally { await rm(dir, { recursive: true, force: true }); }
   } else {
+    await checkUpload(a, data, uid);
     key = `projects/${a.project_id}/assets/${a.id}/upload-${Date.now()}.${mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png'}`;
     await storage.put(key, data, mime);
   }

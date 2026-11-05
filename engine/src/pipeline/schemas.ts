@@ -7,70 +7,38 @@ import { z } from 'zod';
 const str = (d: string) => z.string().describe(d);
 const list = (d: string) => z.array(z.string()).describe(d);
 
-// ───────────────────────── story development ─────────────────────────
+// ───────────────────────── the writers' room ─────────────────────────
+// One small job per call, each answer a production document the next step builds on (never a reasoning field).
 
-export const DevelopSchema = z.object({
+const score = (d: string) => z.number().int().describe(`${d}: 1 (weak) to 5 (excellent)`);
+
+export const PitchSchema = z.object({
   concepts: z.array(z.object({
     title: str('working title'),
-    logline: str('one sentence: who wants what, what stands in the way, what is at stake'),
-    engine: str('what drives the story forward scene to scene (a secret, a deadline, a lie that grows, ...)'),
-    ending: str('how it ends, in one sentence'),
+    protagonist: str('who we follow: name, age, what they do'),
+    logline: str('one sentence: who wants what, who or what stands in the way, what is at stake'),
+    world: str('the specific place, community and time, in a phrase'),
+    engine: str('what drives the story from scene to scene (a secret, a deadline, a lie that grows, ...)'),
+    hook: str('the first three seconds: what we see and hear that stops a viewer scrolling'),
+    turn: str('the biggest reversal or reveal, and when it lands'),
+    ending: str('the final image or line'),
     fresh_because: str('in one short phrase, what makes this take unlike the obvious version'),
   })).describe('exactly three genuinely different takes on the idea'),
-  chosen: z.number().int().describe('index (0, 1 or 2) of the concept developed below'),
-  treatment: z.object({
-    title: str('final title: short, specific, memorable'),
-    logline: str('one sentence'),
-    genre: str('genre and sub-genre'),
-    tone: str('tone in a few words, e.g. "tense, intimate, darkly funny"'),
-    theme: str('what the story is really about, as a statement'),
-    dramatic_question: str('the question the audience wants answered'),
-    world: z.object({
-      place: str('specific city/region and the exact kind of place'),
-      era: str('when: year or period'),
-      social_world: str('class, community, work, the rules people live by'),
-      sensory_palette: list('4 to 6 concrete things this world looks, sounds and feels like'),
-    }),
-    characters: z.array(z.object({
-      id: str('SHORT_ID_IN_CAPS, used as the screenplay character cue'),
-      name: str('full name that fits the culture, era and class of the world'),
-      age: str('age in years'),
-      role: str('lead | supporting'),
-      want: str('what they actively pursue in this story'),
-      obstacle: str('what or who stands in the way'),
-      secret: str('what they hide or will not admit'),
-      arc: str('how they change, or refuse to'),
-      voice: z.object({
-        manner: str('how they talk: e.g. clipped and dry, warm and roundabout'),
-        vocabulary: str('the words they reach for: trade slang, formal, street, religious, ...'),
-        rhythm: str('sentence length and pace'),
-        never_says: str('what this person would never say out loud'),
-      }),
-      look: str('camera-visible appearance notes that make them instantly distinct from the others: age, build, silhouette, hair, signature colour'),
-    })).describe('2 to 4 speaking characters, plus any silent recurring ones'),
-    sets: z.array(z.object({
-      name: str('PLACE name exactly as it will appear in scene headings, e.g. "RIZVI MEDICAL STORE"'),
-      description: str('what the place looks like and what it says about the people in it'),
-      story_function: str('why the story needs this place'),
-    })).describe('2 to 4 physical places, each reused'),
-    episodes: z.array(z.object({
-      number: z.number().int(),
-      title: str('episode title'),
-      beats: z.array(z.object({
-        beat: str('what happens, as visible action'),
-        set: str('PLACE name from sets'),
-        characters: list('character ids in the beat'),
-        turn: str('how the situation changes by the end of the beat'),
-      })),
-      ending: str('the final image or line: payoff for a film, a cliffhanger for a series episode'),
-    })),
-    motifs: list('1 to 3 recurring visual or sound motifs'),
-    avoid: list('the obvious, clichéd choices this premise invites, which the script must not make'),
-  }),
 });
-export type Develop = z.infer<typeof DevelopSchema>;
 
-// ───────────────────────── screenplay ─────────────────────────
+export const ChooseSchema = z.object({
+  scores: z.array(z.object({
+    concept: z.number().int().describe('index of the take: 0, 1 or 2'),
+    fidelity: score('keeps everything the customer asked for'),
+    hook: score('the opening stops a viewer scrolling'),
+    stakes: score('someone wants something concrete and failing costs them personally'),
+    specificity: score('the world, people and details are specific, not generic'),
+    surprise: score('the turn is unexpected, yet inevitable in hindsight'),
+    renderable: score('works with 2 to 4 people in 2 to 4 places, everything visible or audible'),
+  })).describe('one entry per take'),
+  chosen: z.number().int().describe('index of the take to develop'),
+  notes: list('2 or 3 concrete notes that would make the chosen take stronger in development'),
+});
 
 export const StyleSchema = z.object({
   look: str('overall mood of the picture'),
@@ -82,28 +50,130 @@ export const StyleSchema = z.object({
   negative: str('things to avoid visually, comma separated'),
 });
 
-export const ScreenplaySchema = z.object({
-  title: str('title'),
+export const BibleSchema = z.object({
+  title: str('final title: short, specific, memorable'),
   logline: str('one sentence'),
-  world: str('place, era and social world in one or two sentences'),
-  style: StyleSchema,
+  genre: str('genre and sub-genre'),
+  tone: str('tone in a few words, e.g. "tense, intimate, darkly funny"'),
+  theme: str('what the story is really about, as a statement'),
+  dramatic_question: str('the question the audience wants answered'),
+  world: z.object({
+    place: str('specific city or region and the exact kind of place'),
+    era: str('when: year or period'),
+    social_world: str('class, community, work, the rules people live by'),
+    sensory_palette: list('4 to 6 concrete things this world looks, sounds and feels like'),
+  }),
   characters: z.array(z.object({
-    id: str('SHORT_ID_IN_CAPS, exactly as used for character cues'),
-    name: str('full name'),
+    id: str('SHORT_ID in capital letters (A to Z), usually the first name: the screenplay cue'),
+    name: str('full name that people of this place, generation and class are really called'),
     age: str('age in years'),
     role: str('lead | supporting'),
-    description: str('camera-visible appearance: age, build, face, hair, typical clothing'),
-    voice: str('voice casting notes: gender, age, pitch, timbre, pace, accent'),
+    want: str('what they actively pursue in this story'),
+    obstacle: str('what or who stands in the way'),
+    secret: str('what they hide or will not admit'),
+    arc: str('how they change, or refuse to'),
+    voice: z.object({
+      manner: str('how they talk: e.g. clipped and dry, warm and roundabout'),
+      vocabulary: str('the words they reach for: trade slang, formal, street, religious, ...'),
+      rhythm: str('sentence length and pace'),
+      habit: str('one verbal habit, e.g. answers a question with a question, counts things, never finishes a threat'),
+      never_says: str('what this person would never say out loud'),
+      sample_lines: list('two short lines in the dialogue language that only this character would say'),
+    }),
+    look: str('camera-visible appearance notes that make them instantly distinct from the others: age, build, silhouette, hair, signature colour'),
+  })).describe('2 to 4 speaking characters, plus any silent recurring ones'),
+  relationships: z.array(z.object({
+    between: str('two character ids, e.g. "A & B"'),
+    dynamic: str('what binds them and what pulls them apart, in one sentence'),
   })),
+  sets: z.array(z.object({
+    name: str('PLACE name in capitals, exactly as scene headings will use it: a specific place in this story'),
+    description: str('what the place looks like and what it says about the people in it'),
+    story_function: str('why the story needs this place'),
+  })).describe('2 to 4 physical places, each reused'),
+  plants: z.array(z.object({
+    id: str('P1, P2, ...'),
+    setup: str('what is planted on screen early: an object, a habit, a line'),
+    payoff: str('how it pays off later'),
+  })).describe('the setups the ending and the reveals depend on'),
   episodes: z.array(z.object({
+    number: z.number().int(),
     title: str('episode title'),
-    script: str('the complete Fountain screenplay for this episode'),
+    summary: str('what happens, in two or three sentences'),
+    opening: str('the first three seconds of the episode: what we see and hear'),
+    ending: str('the final image or line: a payoff for a film, a cliffhanger for a series episode'),
   })),
+  motifs: list('1 to 3 recurring visual or sound motifs'),
+  avoid: list('the obvious, clichéd choices this premise invites, which the script must not make'),
+  style: StyleSchema.describe("the film's look, specific to this world and tone, not a generic cinematic look"),
 });
-export type Screenplay = z.infer<typeof ScreenplaySchema>;
+export type Bible = z.infer<typeof BibleSchema>;
 
-export const DoctorSchema = ScreenplaySchema.extend({
-  notes: list('the changes you made, one short line each (at most 8)'),
+export const RenameSchema = z.object({
+  names: z.array(z.object({ id: str('the character id'), name: str('the new full name') })),
+});
+
+export const OutlineSchema = z.object({
+  scenes: z.array(z.object({
+    set: str("PLACE name from the bible's sets, exactly"),
+    int_ext: z.enum(['INT', 'EXT']),
+    time: z.enum(['DAY', 'NIGHT', 'DAWN', 'DUSK']),
+    characters: list('ids of the characters on screen'),
+    seconds: z.number().int().describe('screen time in seconds'),
+    purpose: str('what the scene does for the story, in a few words'),
+    objectives: z.array(z.object({
+      who: str('character id'),
+      wants: str('what they want in this scene'),
+      tactic: str('how they go about it, as a verb: charm, stall, bait, threaten, bargain, deflect, confess, ...'),
+    })).describe('one per character on screen'),
+    subtext: str('what is really going on beneath the words'),
+    turn: str('what changes by the end of the scene: who gains or loses what'),
+    value: str('the emotional value at the start and at the end, e.g. "safe → exposed"'),
+    key_image: str('the one image the audience must remember'),
+    exit: str('the last moment, an image or a short line, that pulls us into the next scene'),
+    plants: list('ids of the plants this scene sets up'),
+    payoffs: list('ids of the plants this scene pays off'),
+  })).describe('the scenes of this episode, in order'),
+});
+export type Card = z.infer<typeof OutlineSchema>['scenes'][number];
+
+export const SceneSchema = z.object({
+  elements: z.array(z.object({
+    kind: z.enum(['action', 'line']),
+    who: str("a line: the speaker's character id; action: empty"),
+    paren: str('a line: a delivery note of 2 to 5 words, only when it changes how the line plays; usually empty'),
+    text: str('action: what the camera sees and the microphone hears, in English, one or two sentences; line: the spoken words, in the dialogue language'),
+  })).describe('the scene from its first moment to its last, in order'),
+});
+export type Element = z.infer<typeof SceneSchema>['elements'][number];
+
+export const CritiqueSchema = z.object({
+  scores: z.object({
+    hook: score('the first seconds grab'),
+    turns: score('every scene turns'),
+    escalation: score('the pressure rises to the end'),
+    dialogue: score('subtext and distinct voices, no stock or on-the-nose lines'),
+    specificity: score('specific, never generic'),
+    ending: score('the ending lands'),
+    fidelity: score("it delivers the customer's idea"),
+  }),
+  scenes: z.array(z.object({
+    episode: z.number().int(),
+    scene: z.number().int(),
+    verdict: z.enum(['keep', 'revise']),
+    notes: z.array(z.object({
+      problem: str('quote the weak moment and name what is wrong'),
+      fix: str('the concrete change to make'),
+    })).describe('empty when the verdict is keep'),
+  })).describe('every scene of the screenplay, in order'),
+});
+
+export const JudgeSchema = z.object({
+  verdicts: z.array(z.object({
+    pair: z.number().int().describe('pair number'),
+    better: z.enum(['A', 'B']),
+    margin: z.enum(['clear', 'slight']),
+  })).describe('one verdict per pair'),
 });
 
 // ───────────────────────── breakdown ─────────────────────────
