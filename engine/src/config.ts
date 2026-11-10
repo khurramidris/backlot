@@ -80,6 +80,16 @@ export const config = {
     keyDrafts: Math.max(1, Math.min(3, num(env.KEY_SCENE_DRAFTS, 2))),
     // Scenes written or planned at once per episode (each is one Claude call).
     planConcurrency: num(env.PLAN_CONCURRENCY, 4),
+    // Long projects (a whole season, a feature film): the many small calls (scene cards, scenes, judging, notes,
+    // breakdown, direction, shot plans) run on a cheaper model, so a 90-minute drama costs a few dollars to write.
+    // The story's spine (pitch, choose, bible, season plan) stays on CLAUDE_MODEL. A CLAUDE_MODELS entry still wins.
+    bulkModel: env.CLAUDE_BULK_MODEL || 'claude-haiku-5-5',
+    bulkSteps: (env.CLAUDE_BULK_STEPS || 'outline,scene,judge,critique,breakdown,direct,shots').split(',').map((s) => s.trim()).filter(Boolean),
+    longFormSeconds: num(env.LONG_FORM_SECONDS, 900), // total runtime from which a project counts as long
+    // A long story is planned a batch of episodes at a time (the season plan), and its script editor reads a batch at a time.
+    seasonBatch: Math.max(2, num(env.SEASON_BATCH_EPISODES, 12)),
+    critiqueBatchSeconds: Math.max(120, num(env.CRITIQUE_BATCH_SECONDS, 600)),
+    breakdownBatchScenes: Math.max(10, num(env.BREAKDOWN_BATCH_SCENES, 40)), // scenes per breakdown call
   },
 
   minimax: {
@@ -89,10 +99,11 @@ export const config = {
     imageModel: env.MINIMAX_IMAGE_MODEL || 'image-01',
     // Renders in flight at the provider at once (RunPod: roughly max workers × 2, so its queue stays short).
     maxConcurrentVideo: num(env.VIDEO_MAX_INFLIGHT, num(env.MINIMAX_MAX_CONCURRENT, 10)),
-    maxConcurrentPerUser: num(env.MAX_ACTIVE_RENDERS_PER_USER, 6), // one customer can't take every render slot
+    // Clips one customer renders at once, across all their films and quick clips, whatever their length.
+    maxConcurrentPerUser: Math.max(1, num(env.MAX_ACTIVE_RENDERS_PER_USER, 4)),
     // Clips of one project render this many at a time, in story order, so the customer watches them arrive in the
-    // order they play (1 = one by one).
-    maxConcurrentPerProject: Math.max(1, num(env.RENDERS_PER_PROJECT, 1)),
+    // order they play. By default a film may use all of its owner's slots.
+    maxConcurrentPerProject: Math.max(1, num(env.RENDERS_PER_PROJECT, num(env.MAX_ACTIVE_RENDERS_PER_USER, 4))),
     // Send the scene's previous approved clip as a reference video. Off: its seconds count as input on every render,
     // a cost the customer's per-second price doesn't cover.
     chainClips: bool(env.CHAIN_CLIPS, false),
@@ -172,6 +183,9 @@ export const config = {
     // Per vibe project: the first automatic pass (story, screenplay, cast, sets and shot plan). An estimate of our
     // AI cost with margin: check "charged vs our cost" on the Admin customer page after the first real runs.
     setupFeeUsd: num(env.SETUP_FEE_USD, 2),
+    // A longer film is more writing, casting and planning: each minute past the first SETUP_FEE_INCLUDED_MINUTES adds this.
+    setupFeeIncludedMinutes: num(env.SETUP_FEE_INCLUDED_MINUTES, 10),
+    setupFeePerMinuteUsd: num(env.SETUP_FEE_PER_MINUTE_USD, 0.1),
     // What each later action costs the customer. Charged when the work runs, refunded automatically if it fails.
     actions: {
       image: num(env.SELL_IMAGE_USD, 0.05),         // one character, outfit, set or prop image (re)generated
@@ -179,6 +193,8 @@ export const config = {
       breakdown: num(env.SELL_BREAKDOWN_USD, 0.5),  // casting, costume and set design from the script (studio projects, re-runs)
       plan: num(env.SELL_PLAN_USD, 0.75),           // the director's plan and shot list for an episode (studio projects, re-plans)
       revision: num(env.SELL_REVISION_USD, 0.05),   // rewriting a shot from a review note
+      pitch: num(env.SELL_PITCH_USD, 0.25),          // three new takes on the idea (step-by-step projects)
+      scene: num(env.SELL_SCENE_USD, 0.1),           // rewriting one scene of the screenplay from a note
     },
     signupUsd: num(env.SIGNUP_CREDIT_USD, 0),        // free credit when a user's account is first created
     // Top-up packs for subscribers. They go into the balance that never expires.
@@ -206,7 +222,8 @@ export const config = {
   webDir: env.WEB_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist'),
 
   autopilot: {
-    maxRuntimeSeconds: num(env.MAX_RUNTIME_SECONDS, 600), // hard cap per project at launch
+    // Optional cap on a project's total runtime, in seconds (0 = no cap: a whole series or a feature film is fine).
+    maxRuntimeSeconds: num(env.MAX_RUNTIME_SECONDS, 0),
   },
 
   ffmpeg: { bin: env.FFMPEG_BIN || 'ffmpeg', probe: env.FFPROBE_BIN || 'ffprobe', font: env.SUBTITLE_FONT || 'DejaVu Sans',

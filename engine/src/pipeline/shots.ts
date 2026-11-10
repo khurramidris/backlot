@@ -220,6 +220,13 @@ export function coverage(body: string, bible: { id: string; name?: string }[] = 
   return shots.map((s, i) => `Shot ${i + 1} (about ${Math.max(4, Math.round(s.secs))}s): ${s.beats.map((b) => b.labels.join(' + ')).join(' | ')}`);
 }
 
+/** A whole season or a feature film: its many shot-planning calls run on the bulk model (CLAUDE_BULK_MODEL). */
+function longProject(p: any, episodes: number) {
+  const b = p.brief || {};
+  const seconds = b.seconds && b.episodes ? b.episodes * b.seconds : episodes * 120;
+  return p.mode === 'vibe' && seconds > config.anthropic.longFormSeconds;
+}
+
 /** The director's pass: one plan for the whole episode, so scenes planned in parallel still cut together. */
 async function directEpisode(p: any, ep: any, scenes: any[], A: Awaited<ReturnType<typeof projectAssets>>): Promise<Direction> {
   const [{ n: episodes }] = await sql`select count(*)::int n from episodes where project_id = ${p.id}`;
@@ -234,7 +241,7 @@ async function directEpisode(p: any, ep: any, scenes: any[], A: Awaited<ReturnTy
     characters: A.rows.filter((r: any) => r.kind === 'character' && !r.meta?.unused).map((r: any) => ({ key: r.key, name: r.name, want: who(r.key)?.want || '', secret: who(r.key)?.secret || '' })),
     scenes: scenes.map((sc: any) => ({ idx: sc.idx, heading: sc.heading, body: sc.body, est_seconds: sc.est_seconds, card: cardFor(p, ep.idx, sc) })),
   };
-  const r = await claudeJSON<Direction>({ task: 'direct', system: DIRECT_SYSTEM, prompt: directPrompt(input), input, schema: DirectionSchema, effort: config.anthropic.effort, maxTokens: 32000 });
+  const r = await claudeJSON<Direction>({ task: 'direct', system: DIRECT_SYSTEM, prompt: directPrompt(input), input, schema: DirectionSchema, effort: config.anthropic.effort, maxTokens: 32000, bulk: longProject(p, episodes) });
   await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref: `direct:${ep.id}` });
   const d = r.data || ({} as Direction);
   return { visual_approach: String(d.visual_approach || ''), motifs: Array.isArray(d.motifs) ? d.motifs : [], scenes: Array.isArray(d.scenes) ? d.scenes : [] };
@@ -261,6 +268,8 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
 
   // 2) Every scene's shots, several at once: the director's plan carries the continuity between them.
   let done = 0;
+  const [{ n: episodes }] = await sql`select count(*)::int n from episodes where project_id = ${p.id}`;
+  const long = longProject(p, episodes);
   const planned = await inParallel(scenes, config.anthropic.planConcurrency, async (sc: any, k: number) => {
     const dialogue = dialogueOf(sc.body, bible);
     const actions = actionLines(sc.body);
@@ -284,7 +293,7 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
       actions, dialogue, tags,
       exemplars: exemplarsFor(tags, `${p.id}:${sc.id}`),
     };
-    const r = await claudeJSON({ task: 'shots', system: SHOTS_SYSTEM, prompt: shotsPrompt(input), input, schema: ShotsSchema, effort: config.anthropic.planningEffort, maxTokens: 24000 });
+    const r = await claudeJSON({ task: 'shots', system: SHOTS_SYSTEM, prompt: shotsPrompt(input), input, schema: ShotsSchema, effort: config.anthropic.planningEffort, maxTokens: 24000, bulk: long });
     await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref: `plan:${sc.id}` });
     const fixed = repairShots(r.data, dialogue, { chars: knownChars, props: knownProps }, sc.est_seconds, actions);
     await ctx.progress(`Planning shots: ${++done} of ${scenes.length} scenes`);

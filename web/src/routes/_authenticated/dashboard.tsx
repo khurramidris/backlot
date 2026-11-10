@@ -25,6 +25,7 @@ import {
   canCreate,
   engine,
   FORMATS,
+  formatMinutes,
   isWorking,
   STAGE_LABEL,
   usd,
@@ -162,7 +163,16 @@ function CreateForm({ me }: { me: Me | undefined }) {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState<FormatId>("microdrama");
+  const f = FORMATS.find((x) => x.id === format)!;
+  const [minutes, setMinutes] = useState(f.defaultMinutes);
+  const [review, setReview] = useState(true);
   const box = useRef<HTMLTextAreaElement>(null);
+  const totalSeconds = Math.max(30, Math.round(minutes * 60));
+  const { data: quote } = useQuery({
+    queryKey: ["quote", format, totalSeconds],
+    queryFn: () => engine.quote({ format, total_seconds: totalSeconds }),
+    staleTime: 60_000,
+  });
   // "New video" in the top bar links to #create: put the cursor in the prompt box.
   useEffect(() => {
     const focus = () => window.location.hash === "#create" && box.current?.focus();
@@ -172,7 +182,8 @@ function CreateForm({ me }: { me: Me | undefined }) {
   }, []);
 
   const create = useMutation({
-    mutationFn: () => engine.create({ prompt: prompt.trim(), format }),
+    mutationFn: () =>
+      engine.create({ prompt: prompt.trim(), format, total_seconds: totalSeconds, review }),
     onSuccess: (p) => void navigate({ to: "/p/$projectId", params: { projectId: p.id } }),
     onError: (err: Error) => toast.error(err.message),
   });
@@ -205,7 +216,10 @@ function CreateForm({ me }: { me: Me | undefined }) {
             <button
               key={f.id}
               type="button"
-              onClick={() => setFormat(f.id)}
+              onClick={() => {
+                setFormat(f.id);
+                setMinutes(f.defaultMinutes);
+              }}
               title={f.hint}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs transition-colors",
@@ -217,20 +231,54 @@ function CreateForm({ me }: { me: Me | undefined }) {
               {f.label}
             </button>
           ))}
-          <Button
-            type="submit"
-            className="ml-auto"
-            disabled={prompt.trim().length < 10 || create.isPending}
-          >
+          <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            Length
+            <select
+              value={minutes}
+              onChange={(e) => setMinutes(Number(e.target.value))}
+              aria-label="How long the whole story is"
+              className="rounded-md border border-border-strong bg-cinema px-2 py-1 text-xs text-foreground"
+            >
+              {[...new Set([...f.minutes, minutes])]
+                .sort((a, b) => a - b)
+                .map((m) => (
+                  <option key={m} value={m}>
+                    {formatMinutes(m)}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <Button type="submit" disabled={prompt.trim().length < 10 || create.isPending}>
             {create.isPending ? <Loader2 className="animate-spin" /> : <ArrowRight />}
             Create
           </Button>
         </div>
       </form>
+      <label className="mt-3 flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={review}
+          onChange={(e) => setReview(e.target.checked)}
+          className="mt-1 accent-[var(--primary)]"
+        />
+        <span>
+          Let me check each step
+          <span className="block text-xs text-muted-foreground">
+            Choose the story, edit the script and check every face and set before anything is
+            filmed. Untick to go straight to the price.
+          </span>
+        </span>
+      </label>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {quote && quote.episodes > 1 ? (
+          <span>
+            {quote.episodes} {quote.unit.toLowerCase()}s of about {quote.seconds_per_episode}{" "}
+            seconds
+          </span>
+        ) : null}
         {me?.credits_enforced ? (
           <span>
-            Writing and casting {usd(me.prices.setup_fee_usd)} · filming{" "}
+            Writing and casting {usd(quote?.setup_fee_usd ?? me.prices.setup_fee_usd)} · filming{" "}
             {usd(me.prices.per_second["768P"] ?? 0)}/second
           </span>
         ) : null}

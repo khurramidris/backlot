@@ -11,6 +11,7 @@ import { capacityTick } from './capacity.js';
 import { sql } from './db.js';
 import { config } from './config.js';
 import { paidForProject } from './billing.js';
+import { rewriteScene } from './pipeline/writer.js';
 
 export function registerJobs() {
   register('project.breakdown', (p, ctx) => paidForProject(p.projectId, config.credits.actions.breakdown, 'breakdown', () => runBreakdown(p.projectId, ctx, { force: p.force })));
@@ -41,6 +42,11 @@ export function registerJobs() {
     await sql`update shots set status = case when approved_take_id is null then 'failed' else status end, error = 'retake could not be prepared', updated_at = now() where id = ${p.shotId}`;
   });
   register('cut.assemble', (p, ctx) => assembleCut(p.cutId, ctx.progress));
+  register('scene.rewrite', async (p, ctx) => {
+    const [e] = await sql`select project_id from episodes where id = ${p.episodeId}`;
+    await ctx.progress(`Rewriting scene ${p.scene}`);
+    return paidForProject(e?.project_id, config.credits.actions.scene, 'scene_rewrite', () => rewriteScene(p.episodeId, p.scene - 1, p.note));
+  });
   register('project.autopilot', (p, ctx) => runAutopilot(p.projectId, ctx));
   register('project.autopilot:failed', autopilotFailed);
   register('system.capacity', () => capacityTick());

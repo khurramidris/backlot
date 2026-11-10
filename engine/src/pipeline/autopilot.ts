@@ -13,8 +13,12 @@ import { planEpisode } from './shots.js';
 import { queueRender, refreshEpisodeStatus } from './render.js';
 import { requestCut } from './assemble.js';
 
-export type Stage = 'writing' | 'breakdown' | 'casting' | 'planning' | 'ready' | 'rendering' | 'assembling' | 'done' | 'failed';
+// Step-by-step projects (brief.review) also stop for the customer at story_review (pick a take), script_review (read and
+// edit the screenplay) and cast_review (check every face and set); "ready" (the price) is the last stop for everyone.
+export type Stage = 'writing' | 'story_review' | 'script_review' | 'breakdown' | 'casting' | 'cast_review' | 'planning' | 'ready' | 'rendering' | 'assembling' | 'done' | 'failed';
 const BEFORE_READY: Stage[] = ['writing', 'breakdown', 'casting', 'planning'];
+/** Stages where the project waits for the customer. */
+export const WAITING: Stage[] = ['story_review', 'script_review', 'cast_review', 'ready'];
 
 const again = (sec: number, progress?: string): Again => ({ again: sec, progress });
 
@@ -36,7 +40,9 @@ export async function runAutopilot(projectId: string, ctx: JobCtx): Promise<any 
   switch (p.stage as Stage) {
     case 'writing': { // pitch → bible → cards → scenes → notes → rewrites, one step per run
       const step = await writeStep(p.id, ctx);
+      if (step.pause === 'story') { await setStage(p.id, 'story_review', { repitch_fee: null }); return { stage: 'story_review' }; }
       if (!step.done) return again(step.wait || 0, step.progress);
+      if (p.brief?.review) { await setStage(p.id, 'script_review'); return { stage: 'script_review' }; }
       await setStage(p.id, 'breakdown');
       return again(0, 'Script written');
     }
@@ -60,8 +66,10 @@ async function casting(p: any, st: any): Promise<Again> {
   if (busy) return again(3, `Casting: ${rows.filter((r: any) => r.status === 'review' || r.status === 'approved').length} of ${rows.length} references ready`);
 
   // Lock everything that's ready. Approving a parent re-queues any child made from an older image.
+  // Step by step, the customer checks the cast first: they approve, regenerate or upload, then press Continue.
+  const step = !!p.brief?.review && !st.cast_confirmed;
   const review = rows.filter((r: any) => r.status === 'review');
-  if (review.length) {
+  if (review.length && !step) {
     for (const r of review) await approveAsset(r.id, { covered: true });
     return again(1, 'Locking the cast and sets');
   }
@@ -78,6 +86,7 @@ async function casting(p: any, st: any): Promise<Again> {
   // Faces and sets are what keep a film consistent: without them, stop before the customer pays to render.
   // Anything else still missing (a prop, an outfit, a voice) is skipped; its shots render without it.
   const missing = rows.filter((r: any) => (r.kind === 'character' || r.kind === 'location') && r.status !== 'approved');
+  if (step && rows.some((r: any) => r.status === 'review' || r.status === 'approved')) { await setStage(p.id, 'cast_review'); return { stage: 'cast_review' } as any; }
   if (missing.length) throw new PermanentError(`${missing.length} of the main characters and sets could not be designed. Please try again.`, 'casting_failed');
   await setStage(p.id, 'planning');
   return again(0, 'Cast and sets locked');
@@ -172,7 +181,8 @@ export async function autopilotFailed(payload: { projectId: string }, ctx: JobCt
   await sql.begin(async (tx) => {
     const refund = BEFORE_READY.includes(p.stage) && Number(st.setup_fee) > 0 && !st.setup_refunded;
     if (refund) await credit(tx, p.owner_id, Number(st.setup_fee), 'refund', p.id);
+    if (Number(st.repitch_fee) > 0) await credit(tx, p.owner_id, Number(st.repitch_fee), 'refund', p.id); // new takes that never came
     await tx`update projects set stage = 'failed', stage_error = ${String(j?.error || 'Something went wrong.').slice(0, 500)},
-      autopilot = autopilot || ${tx.json({ failed_stage: p.stage, ...(refund ? { setup_refunded: true } : {}) })}, updated_at = now() where id = ${p.id}`;
+      autopilot = autopilot || ${tx.json({ failed_stage: p.stage, repitch_fee: null, ...(refund ? { setup_refunded: true } : {}) })}, updated_at = now() where id = ${p.id}`;
   });
 }

@@ -24,9 +24,9 @@ import { sceneFountain, type SceneElement } from './fountain.js';
 import { normalizeImport } from './importer.js';
 import {
   PITCH_SYSTEM, pitchPrompt, CHOOSE_SYSTEM, choosePrompt, BIBLE_SYSTEM, biblePrompt, RENAME_SYSTEM, renamePrompt, OUTLINE_SYSTEM, outlinePrompt,
-  SCENE_SYSTEM, scenePrompt, CRITIQUE_SYSTEM, critiquePrompt, JUDGE_SYSTEM, judgePrompt, bibleText, cardLine, cardText,
+  SCENE_SYSTEM, scenePrompt, CRITIQUE_SYSTEM, critiquePrompt, JUDGE_SYSTEM, judgePrompt, SEASON_SYSTEM, seasonPrompt, bibleText, cardLine, cardText,
 } from './prompts.js';
-import { PitchSchema, ChooseSchema, BibleSchema, RenameSchema, OutlineSchema, SceneSchema, CritiqueSchema, JudgeSchema } from './schemas.js';
+import { PitchSchema, ChooseSchema, BibleSchema, RenameSchema, OutlineSchema, SceneSchema, CritiqueSchema, JudgeSchema, SeasonSchema } from './schemas.js';
 import {
   applyRenames, budget, cleanBible, cleanOutline, cleanScene, inParallel, overusedNames, plantNotes, recentWork, rhythm, sceneProblem,
   sceneRange, shuffled, sparksFor, storyLint, type CardOut,
@@ -34,38 +34,52 @@ import {
 import { craftFor, craftTags } from './craft.js';
 
 type Range = readonly [number, number];
-export const FORMATS: Record<string, { label: string; aspect: string; engine: string; episodes: Range; seconds: Range; defaults: { episodes: number; seconds: number }; notes: string }> = {
-  microdrama: { label: 'Microdrama', aspect: '9:16', engine: 'micro', episodes: [1, 5], seconds: [45, 120], defaults: { episodes: 1, seconds: 75 },
+const ANY = Number.MAX_SAFE_INTEGER; // no limit on how many episodes or parts a story has
+export const FORMATS: Record<string, { label: string; aspect: string; engine: string; unit: 'Episode' | 'Part'; episodes: Range; seconds: Range; defaults: { episodes: number; seconds: number }; notes: string }> = {
+  microdrama: { label: 'Microdrama', aspect: '9:16', engine: 'micro', unit: 'Episode', episodes: [1, ANY], seconds: [45, 180], defaults: { episodes: 1, seconds: 75 },
     notes: 'A vertical microdrama for phone feeds: heightened emotion, fast turns, big reveals, and a cliffhanger ending.' },
-  short_film: { label: 'Short film', aspect: '16:9', engine: 'film', episodes: [1, 1], seconds: [60, 300], defaults: { episodes: 1, seconds: 120 },
+  short_film: { label: 'Short film', aspect: '16:9', engine: 'film', unit: 'Part', episodes: [1, 1], seconds: [60, 600], defaults: { episodes: 1, seconds: 120 },
     notes: 'A self-contained short film with a clear beginning, middle and end.' },
-  web_series: { label: 'Web series', aspect: '16:9', engine: 'series', episodes: [1, 3], seconds: [90, 240], defaults: { episodes: 2, seconds: 150 },
+  feature_film: { label: 'Feature film', aspect: '16:9', engine: 'film', unit: 'Part', episodes: [1, ANY], seconds: [180, 600], defaults: { episodes: 18, seconds: 300 },
+    notes: 'A feature-length film, written and filmed in parts of a few minutes each. It is one story: a beginning, a middle and an end across the whole film. Each part moves the story forward and hands over to the next; the last part pays everything off.' },
+  web_series: { label: 'Web series', aspect: '16:9', engine: 'series', unit: 'Episode', episodes: [1, ANY], seconds: [90, 600], defaults: { episodes: 2, seconds: 150 },
     notes: 'A web series: every episode has its own arc and ends on a hook into the next.' },
-  youtube: { label: 'YouTube story', aspect: '16:9', engine: 'film', episodes: [1, 1], seconds: [60, 300], defaults: { episodes: 1, seconds: 120 },
+  youtube: { label: 'YouTube story', aspect: '16:9', engine: 'film', unit: 'Part', episodes: [1, ANY], seconds: [60, 600], defaults: { episodes: 1, seconds: 120 },
     notes: 'A narrative story video for YouTube: a strong hook in the first five seconds, then rising tension to the end.' },
 };
 
 export const BriefSchema = z.object({
   prompt: z.string().trim().min(10, 'Describe your idea in at least a sentence.').max(4000),
-  format: z.enum(['microdrama', 'short_film', 'web_series', 'youtube']).default('microdrama'),
+  format: z.enum(['microdrama', 'short_film', 'feature_film', 'web_series', 'youtube']).default('microdrama'),
   episodes: z.number().int().positive().optional(),
   seconds: z.number().int().positive().optional(), // per episode
+  total_seconds: z.number().int().positive().optional(), // the whole film or series; split into episodes or parts in code
   language: z.string().trim().min(2).max(40).default('English'),
+  review: z.boolean().default(false), // step by step: stop for the customer after the takes, the script and the cast
 });
-export type Brief = Omit<z.infer<typeof BriefSchema>, 'episodes' | 'seconds'> & { episodes: number; seconds: number; aspect: string; engineFormat: string };
+export type Brief = Omit<z.infer<typeof BriefSchema>, 'episodes' | 'seconds' | 'total_seconds'> & { episodes: number; seconds: number; aspect: string; engineFormat: string };
 
 const clamp = (v: number, [lo, hi]: Range) => Math.min(hi, Math.max(lo, v));
 
-/** Fill defaults and clamp to what the format allows at launch, inside the per-project runtime cap. */
+/** Fill defaults and clamp to what the format allows. There is no length limit unless MAX_RUNTIME_SECONDS sets one. */
 export function resolveBrief(raw: unknown): Brief {
-  const b = BriefSchema.parse(raw);
+  const { total_seconds: total, ...b } = BriefSchema.parse(raw);
   const f = FORMATS[b.format];
+  const single = f.episodes[1] === 1;
+  let seconds = clamp(single && total ? total : b.seconds ?? f.defaults.seconds, f.seconds);
+  let episodes = clamp(total && !single ? Math.max(1, Math.round(total / seconds)) : b.episodes ?? f.defaults.episodes, f.episodes);
   const cap = config.autopilot.maxRuntimeSeconds;
-  const seconds = Math.min(clamp(b.seconds ?? f.defaults.seconds, f.seconds), cap);
-  let episodes = clamp(b.episodes ?? f.defaults.episodes, f.episodes);
-  while (episodes > 1 && episodes * seconds > cap) episodes--;
+  if (cap > 0) {
+    seconds = Math.min(seconds, cap);
+    while (episodes > 1 && episodes * seconds > cap) episodes--;
+  }
   return { ...b, episodes, seconds, aspect: f.aspect, engineFormat: f.engine };
 }
+
+/** A whole season or a feature film: its many small calls run on the bulk model and it's planned in batches. */
+export const isLongForm = (b: Pick<Brief, 'episodes' | 'seconds'>) => b.episodes * b.seconds > config.anthropic.longFormSeconds;
+/** What one episode of this format is called on screen: "Episode 3" or, for films, "Part 3". */
+export const unitOf = (format: string) => FORMATS[format]?.unit || 'Episode';
 
 /** The take to develop: the best rubric total among takes that keep the customer's idea (fidelity counts double). */
 export function pickConcept(choice: any, n: number): number {
@@ -93,14 +107,18 @@ export function judged(raw: any, flips: boolean[]): { winner: 0 | 1; clear: bool
 }
 
 type Note = { problem: string; fix: string };
-type Phase = 'pitch' | 'bible' | 'outline' | 'scenes' | 'critique' | 'revise';
-interface WriteState {
+type Phase = 'pitch' | 'bible' | 'season' | 'outline' | 'scenes' | 'critique' | 'revise';
+const PHASES: Phase[] = ['pitch', 'bible', 'season', 'outline', 'scenes', 'critique', 'revise'];
+export interface WriteState {
   phase?: Phase; tries?: number; problem?: string;
+  direction?: string;                         // the customer's note for new takes (step by step)
+  picked?: boolean;                           // the customer chose the take (step by step)
   concepts?: any[]; choice?: { chosen: number; scores: any[]; notes: string[] };
   bible?: any;
   outline?: CardOut[][];                      // scene cards per episode
   scenes?: (SceneElement[] | null)[][];       // written scenes per episode, aligned with the cards
   critique?: { scores: any; scenes: any[] } | null;
+  critiqued?: number;                         // episodes the script editor has read so far (long stories go in batches)
   revised?: number;                           // episodes polished so far
   notes?: string[];                           // what the polish did, for the report
 }
@@ -109,15 +127,16 @@ interface WriteState {
  * One step of the writers' room per call. Returns done=true once the final screenplay is saved.
  * State lives in projects.autopilot.writing, so a failed or restarted job resumes at its step.
  */
-export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done: boolean; progress: string; wait?: number }> {
+export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done: boolean; progress: string; wait?: number; pause?: 'story' }> {
   const [p] = await sql`select * from projects where id = ${projectId}`;
   if (!p) throw new PermanentError('project not found');
   const brief = p.brief as Brief;
   const f = FORMATS[brief.format];
   let st: WriteState = p.autopilot?.writing || {};
-  if (st.phase && !['pitch', 'bible', 'outline', 'scenes', 'critique', 'revise'].includes(st.phase)) st = {}; // state from an older engine: start over
+  if (st.phase && !PHASES.includes(st.phase)) st = {}; // state from an older engine: start over
   const phase: Phase = st.phase || 'pitch';
-  const base = { format: f.label, formatNotes: f.notes, aspect: brief.aspect, episodes: brief.episodes, secondsPerEpisode: brief.seconds, language: brief.language };
+  const long = isLongForm(brief);
+  const base = { format: f.label, formatNotes: f.notes, aspect: brief.aspect, episodes: brief.episodes, secondsPerEpisode: brief.seconds, language: brief.language, unit: f.unit };
   const retryNote = st.problem ? `\n\nYOUR PREVIOUS ANSWER WAS UNUSABLE: ${st.problem}. Fix that.` : '';
   const save = (patch: WriteState | null) => sql`update projects set autopilot = autopilot || ${sql.json({ writing: patch } as any)}, updated_at = now() where id = ${projectId}`;
   const fail = async (problem: string, what: string) => {
@@ -128,7 +147,7 @@ export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done:
   };
   /** One Claude call of this project, with its cost recorded. */
   const ask = async <T>(call: ClaudeCall<T>, ref: string) => {
-    const r = await claudeJSON<T>(call);
+    const r = await claudeJSON<T>({ ...call, bulk: long });
     await recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref });
     return r.data;
   };
@@ -136,7 +155,7 @@ export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done:
 
   if (phase === 'pitch') {
     await ctx.progress('Pitching takes on the idea');
-    const input = { ...base, prompt: brief.prompt, sparks: sparksFor(projectId), recent: await recentWork(p.owner_id, projectId) };
+    const input = { ...base, prompt: brief.prompt, sparks: sparksFor(projectId), recent: await recentWork(p.owner_id, projectId), direction: st.direction, previous: st.concepts };
     const pitched = await ask({ task: 'pitch', system: PITCH_SYSTEM(brief.format), prompt: pitchPrompt(input) + retryNote, input, schema: PitchSchema, effort: config.anthropic.effort, maxTokens: 24000 }, 'pitch');
     const concepts = (Array.isArray(pitched?.concepts) ? pitched.concepts : []).filter((c: any) => c && typeof c === 'object' && (c.logline || c.title)).slice(0, 3);
     if (!concepts.length) return fail('there were no takes on the idea', 'story');
@@ -148,15 +167,16 @@ export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done:
       } catch (e: any) { if (e instanceof PermanentError && e.code === 'refused') throw e; } // without a verdict, the first take
     }
     await save({ phase: 'bible', concepts, choice, tries: 0 });
-    return { done: false, progress: 'Takes pitched' };
+    return { done: false, progress: 'Takes pitched', ...(brief.review ? { pause: 'story' as const } : {}) };
   }
 
   if (phase === 'bible') {
     await ctx.progress('Developing the story');
     const concept = st.concepts?.[st.choice?.chosen || 0];
-    const input = { ...base, prompt: brief.prompt, concept, notes: st.choice?.notes || [], recent: await recentWork(p.owner_id, projectId) };
-    const raw = await ask({ task: 'bible', system: BIBLE_SYSTEM(brief.format), prompt: biblePrompt(input) + retryNote, input, schema: BibleSchema, effort: config.anthropic.effort, maxTokens: 32000 }, 'bible');
-    let { bible, problem } = cleanBible(raw, brief.episodes);
+    const planned = long ? Math.min(brief.episodes, config.anthropic.seasonBatch) : brief.episodes; // the rest come from the season plan
+    const input = { ...base, prompt: brief.prompt, concept, notes: st.choice?.notes || [], recent: await recentWork(p.owner_id, projectId), planned, minutes: Math.round((brief.episodes * brief.seconds) / 60) };
+    const raw = await ask({ task: 'bible', system: BIBLE_SYSTEM(brief.format), prompt: biblePrompt(input) + retryNote, input, schema: BibleSchema, effort: config.anthropic.effort, maxTokens: 48000 }, 'bible');
+    let { bible, problem } = cleanBible(raw, planned);
     if (problem) return fail(problem, 'story');
     // Every AI story reaches for the same few names; recast them here, where names are decided once for the film.
     const rename = overusedNames(bible.characters, brief.prompt);
@@ -167,9 +187,22 @@ export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done:
         bible = applyRenames(bible, names);
       } catch (e: any) { if (e instanceof PermanentError && e.code === 'refused') throw e; } // keep the names rather than fail
     }
-    bible.episodes = bible.episodes.slice(0, brief.episodes).map((e: any, i: number) => ({ ...e, number: i + 1 }));
-    await save({ ...st, phase: 'outline', bible, outline: [], tries: 0, problem: undefined });
+    bible.episodes = bible.episodes.slice(0, planned).map((e: any, i: number) => ({ ...e, number: i + 1 }));
+    await save({ ...st, phase: bible.episodes.length < brief.episodes ? 'season' : 'outline', bible, outline: [], tries: 0, problem: undefined });
     return { done: false, progress: 'Story developed' };
+  }
+
+  if (phase === 'season') { // a long story's episodes, planned a batch at a time from the bible's season arc
+    const have = st.bible.episodes.length, to = Math.min(brief.episodes, have + config.anthropic.seasonBatch);
+    await ctx.progress(`Planning ${f.unit.toLowerCase()}s ${have + 1} to ${to} of ${brief.episodes}`);
+    const input = { ...base, from: have + 1, to, open: openPlants(st.bible) };
+    const raw = await ask({ task: 'season', system: SEASON_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: seasonPrompt(input) + retryNote, input, schema: SeasonSchema, effort: config.anthropic.effort, maxTokens: 32000 }, `season:${have + 1}`);
+    const next = (Array.isArray(raw?.episodes) ? raw.episodes : []).filter((e: any) => e && (e.summary || e.title)).slice(0, to - have)
+      .map((e: any, i: number) => ({ title: String(e.title || ''), summary: String(e.summary || ''), opening: String(e.opening || ''), ending: String(e.ending || ''), number: have + i + 1 }));
+    if (!next.length) return fail(`no ${f.unit.toLowerCase()}s were planned`, 'season plan');
+    const bible = { ...st.bible, episodes: [...st.bible.episodes, ...next] };
+    await save({ ...st, bible, phase: bible.episodes.length < brief.episodes ? 'season' : 'outline', tries: 0, problem: undefined });
+    return { done: false, progress: `${f.unit}s ${have + 1} to ${have + next.length} planned` };
   }
 
   if (phase === 'outline') {
@@ -180,7 +213,8 @@ export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done:
     const range = sceneRange(brief.format, brief.seconds);
     const input = {
       episode, episodes: brief.episodes, seconds: brief.seconds, range, rhythm: rhythm(brief.format, brief.seconds),
-      earlier: outline.map((cards, i) => ({ number: i + 1, cards })), open: e ? plantNotes(st.bible, outline) : [], bible: st.bible,
+      // The two episodes before this one as boarded; the rest of the story so far is in the bible's episode list.
+      earlier: outline.slice(Math.max(0, e - 2)).map((cards, i) => ({ number: Math.max(0, e - 2) + i + 1, cards })), open: e ? plantNotes(st.bible, outline) : [], bible: st.bible,
     };
     const raw = await ask({ task: 'outline', system: OUTLINE_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: outlinePrompt(input) + retryNote, input, schema: OutlineSchema, effort: config.anthropic.effort, maxTokens: 32000 }, `outline:${e + 1}`);
     const { cards, problem } = cleanOutline(raw, st.bible, brief.seconds, range);
@@ -212,19 +246,29 @@ export async function writeStep(projectId: string, ctx: JobCtx): Promise<{ done:
     return { done: false, progress: 'First draft written' };
   }
 
-  if (phase === 'critique') {
-    await ctx.progress("Script editor's notes");
+  if (phase === 'critique') { // the script editor reads up to CRITIQUE_BATCH_SECONDS of screen time per call
+    const from = st.critiqued || 0, all = st.outline!.length;
+    const to = Math.min(all, from + Math.max(1, Math.floor(config.anthropic.critiqueBatchSeconds / brief.seconds)));
+    await ctx.progress(all > to - from ? `Script editor's notes: ${f.unit.toLowerCase()}s ${from + 1} to ${to}` : "Script editor's notes");
     const lint = lintOf(room);
-    let critique: WriteState['critique'] = null;
+    const prev = st.critique || { scores: null, scenes: [] };
+    let critique: WriteState['critique'] = prev;
+    const notes = [...(st.notes || [])];
     try {
-      const input = { prompt: brief.prompt, outline: st.outline!, scripts: scriptsWithCards(st), checks: lint.issues, plants: plantNotes(st.bible, st.outline!) };
-      const r = await ask({ task: 'critique', system: CRITIQUE_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: critiquePrompt(input), input, schema: CritiqueSchema, effort: config.anthropic.effort, maxTokens: 32000 }, 'critique');
-      critique = { scores: r?.scores || null, scenes: Array.isArray(r?.scenes) ? r.scenes : [] };
+      const outline = st.outline!.slice(from, to);
+      const scripts = scriptsWithCards(st).slice(from, to);
+      const input = { prompt: brief.prompt, outline, scripts, first: from, checks: lint.issues, plants: plantNotes(st.bible, st.outline!) };
+      const r = await ask({ task: 'critique', system: CRITIQUE_SYSTEM(brief.format), context: bibleText(st.bible, { language: brief.language }), prompt: critiquePrompt(input), input, schema: CritiqueSchema, effort: config.anthropic.effort, maxTokens: 32000 }, `critique:${from + 1}`);
+      critique = { scores: mergeScores(prev.scores, r?.scores, from, to - from), scenes: [...prev.scenes, ...(Array.isArray(r?.scenes) ? r.scenes : [])] };
     } catch (e: any) {
       if (e instanceof PermanentError && e.code === 'refused') throw e;
-      return finish(room, [`kept the first draft: the script editor's pass failed (${String(e.message).slice(0, 120)})`]);
+      notes.push(`kept the first draft of ${all > 1 ? `${f.unit.toLowerCase()}s ${from + 1} to ${to}` : 'the script'}: the script editor's pass failed (${String(e.message).slice(0, 120)})`);
     }
-    await save({ ...st, phase: 'revise', critique, revised: 0, notes: [] });
+    if (to < all) {
+      await save({ ...st, critique, critiqued: to, notes });
+      return { done: false, progress: `Notes in for ${f.unit.toLowerCase()}s ${from + 1} to ${to}` };
+    }
+    await save({ ...st, phase: 'revise', critique, critiqued: to, revised: 0, notes });
     return { done: false, progress: 'Notes in' };
   }
 
@@ -369,7 +413,7 @@ async function finish(r: Room, notes: string[]) {
       description: c.look ? `Distinct look: ${str(c.look)}` : '',
       voice: c.voice ? `Speaks ${str(c.voice.manner)}; ${str(c.voice.rhythm)}.` : '',
     })),
-    episodes: w.episodes.map((x, i) => ({ label: `Episode ${i + 1}`, title: str(x.title), script: x.script })),
+    episodes: w.episodes.map((x, i) => ({ label: w.episodes.length > 1 ? `${unitOf(brief.format)} ${i + 1}` : 'Episode 1', title: str(x.title), script: x.script })),
   });
   const outline = (st.outline || []).map((cards, e) => ({ episode: e + 1, scenes: cards }));
   const quality = { issues: report.issues, episodes: report.episodes, scores: st.critique?.scores || null, doctor_notes: notes, concepts: st.concepts || [], choice: st.choice || null };
@@ -385,8 +429,73 @@ async function finish(r: Room, notes: string[]) {
   return { done: true, progress: 'Script written' };
 }
 
+/** The bible's setups, for the season planner: what the later episodes still have to pay off. */
+const openPlants = (bible: any) => (bible?.plants || []).map((p: any) => `${p.id}: ${p.setup} → ${p.payoff}`);
+
+/** The script editor's scores across batches: each batch weighted by how many episodes it read. */
+export function mergeScores(prev: any, next: any, before: number, n: number) {
+  if (!next || typeof next !== 'object') return prev ?? null;
+  if (!prev || typeof prev !== 'object' || !before) return next;
+  const out: any = { ...prev };
+  for (const [k, v] of Object.entries(next)) {
+    const a = +prev[k], b = +(v as any);
+    out[k] = Number.isFinite(a) && Number.isFinite(b) ? +((a * before + b * n) / (before + n)).toFixed(2) : v;
+  }
+  return out;
+}
+
 /** All writing steps in one go (tools and tests; the autopilot runs them one job at a time). */
 export async function writeProduction(projectId: string, ctx: JobCtx) {
-  for (let i = 0; i < 40; i++) if ((await writeStep(projectId, ctx)).done) return;
+  for (let i = 0; i < 2000; i++) if ((await writeStep(projectId, ctx)).done) return;
   throw new PermanentError('The script could not be written.', 'write_failed');
+}
+
+/** The setup fee for a vibe project: the base fee covers the first minutes, each minute after that adds a little. */
+export function setupFeeFor(b: Pick<Brief, 'episodes' | 'seconds'>) {
+  const c = config.credits, minutes = (b.episodes * b.seconds) / 60;
+  return +(c.setupFeeUsd + Math.max(0, Math.ceil(minutes - c.setupFeeIncludedMinutes)) * c.setupFeePerMinuteUsd).toFixed(2);
+}
+
+const HEADING_LINE = /^(\.[A-Za-z0-9]|(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s])/i;
+/** A screenplay cut at its scene headings: what comes before the first scene, then one block of text per scene. */
+export function splitScenes(script: string): { preamble: string; scenes: string[] } {
+  const lines = String(script || '').replace(/\r/g, '').split('\n');
+  const heads = lines.map((l, i) => (HEADING_LINE.test(l.trim()) ? i : -1)).filter((i) => i >= 0);
+  if (!heads.length) return { preamble: '', scenes: [lines.join('\n').trim()].filter(Boolean) };
+  return {
+    preamble: lines.slice(0, heads[0]).join('\n').trim(),
+    scenes: heads.map((h, k) => lines.slice(h, heads[k + 1] ?? lines.length).join('\n').trim()),
+  };
+}
+export const joinScenes = (x: { preamble: string; scenes: string[] }) => [x.preamble, ...x.scenes].filter(Boolean).join('\n\n') + '\n';
+
+/**
+ * Rewrite one scene of a written screenplay from the customer's note (step by step, paid). The writer gets the scene's
+ * card, the story bible and the scene as it stands now, so a scene the customer edited by hand is rewritten from their text.
+ */
+export async function rewriteScene(episodeId: string, k: number, note: string) {
+  const [ep] = await sql`select * from episodes where id = ${episodeId}`;
+  if (!ep) throw new PermanentError('episode not found');
+  const [p] = await sql`select * from projects where id = ${ep.project_id}`;
+  const sb = p.story_bible || {}, bible = sb.treatment;
+  const outline: CardOut[][] = (sb.outline || []).map((o: any) => o.scenes || []);
+  const e = ep.idx - 1, cards = outline[e];
+  if (!bible || !cards?.length) throw new PermanentError('This script has no scene cards to write from.', 'bad_state');
+  const parts = splitScenes(ep.script);
+  if (!(k >= 0 && k < parts.scenes.length)) throw new PermanentError('scene not found', 'not_found');
+  const brief = p.brief as Brief, long = isLongForm(brief);
+  const ask = async <T>(call: ClaudeCall<T>, ref: string) => {
+    const r = await claudeJSON<T>({ ...call, bulk: long });
+    await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'llm', units: llmUnits(r.usage), cost: llmCost(r.model, r.usage), ref });
+    return r.data;
+  };
+  const room: Room = { p, brief, st: { bible, outline, scenes: [] }, ask };
+  const card = Math.min(k, cards.length - 1);
+  const els = await draftScene(room, e, card, { seed: `${p.id}:${e}:${k}:${Date.now()}`, current: parts.scenes[k], notes: [{ problem: `The customer asks: ${note}`, fix: '' }] });
+  if (!els?.length) throw new Error('The scene could not be rewritten just now.');
+  const heading = parts.scenes[k].split('\n')[0].trim();
+  parts.scenes[k] = sceneFountain(heading, els).trim();
+  const [r] = await sql`update episodes set script = ${joinScenes(parts)}, updated_at = now() where id = ${ep.id} returning id`;
+  await sql`update projects set updated_at = now() where id = ${p.id}`;
+  return { episode_id: r.id, scene: k + 1 };
 }

@@ -26,6 +26,7 @@ export const FORMAT_CRAFT: Record<string, string> = {
   microdrama: `This is a MICRODRAMA: vertical, watched on a phone, one to two minutes an episode. It is heightened and fast. Its audience comes for big emotions and sharp reversals: injustice and vindication, hidden identities and status reveals, betrayal, forbidden or contract love, revenge, second chances. A familiar trope is welcome when the execution is specific and surprising: the cliché is lazy execution, not the trope. Open on the conflict already at boiling point, never on setup. Give the audience someone to root for, someone they love to hate, and stakes that are personal and immediate. Confrontations happen face to face and out loud (people accuse, demand, humiliate, threaten and refuse), but nobody explains the plot or narrates their feelings. Let the audience know something a character doesn't. Something flips every 20 to 30 seconds, and each episode ends on a cliffhanger: a reveal or a threat, cut before the answer, on a face or an object.`,
   short_film: `This is a SHORT FILM: one complete story in a few minutes. Restraint and specificity: one protagonist, one want, one obstacle, one turn that changes everything, and an ending that lands, often quietly, on an image that answers the dramatic question or changes the meaning of the opening. Subtext over statement: people talk around what they want. Let silences and small gestures carry the weight. Earn every second; no scene exists only to explain.`,
   web_series: `This is a WEB SERIES: a few episodes of a few minutes each. Character first. Each episode has its own question and its own turn, and ends on a hook into the next; across the episodes a bigger question builds and pays off in the last one. Relationships shift episode by episode. Subtext over statement, with a sharper edge as the pressure rises.`,
+  feature_film: `This is a FEATURE FILM, written and filmed in parts of a few minutes each and watched as one film. Build it like a feature: a protagonist with a deep want and a flaw, a world that is established fast, a first-act turn that locks them into the story, a midpoint that changes what the film is about, a low point, and a climax that answers the dramatic question. Subplots and secondary characters carry their own small arcs and feed the main story. Each part has its own movement and ends by pulling into the next, but never on a cheap cliffhanger: the pull comes from the story. Subtext over statement, scenes that turn, setups planted early and paid off late. The last part lands the ending.`,
   youtube: `This is a YOUTUBE STORY VIDEO: clarity and momentum. Grab attention in the first five seconds with something specific and strange, then keep raising the tension: answer one question while opening a bigger one, and pay off the promise of the opening. Clear characters, clear stakes, a satisfying final turn.`,
 };
 const formatCraft = (format: string) => FORMAT_CRAFT[format] || FORMAT_CRAFT.short_film;
@@ -39,10 +40,11 @@ const OVERUSED_NAMES = `Names: avoid Maya, Elena, Elara, Aria, Lila, Luna, Zara,
 
 const STOCK_LINES = `Stock lines never appear: "We need to talk." "It's not what it looks like." "I can explain." "You don't understand." "What have you done?" "This changes everything." "I've been waiting for you." "After all these years." "It's complicated." "Trust me." "Are you okay?" as filler. Nor do lines that name a feeling ("I'm so angry", "I feel betrayed") or explain what both people already know ("As you know...").`;
 
-function deliverable(i: { format: string; formatNotes: string; aspect: string; episodes: number; secondsPerEpisode: number; language: string }) {
+function deliverable(i: { format: string; formatNotes: string; aspect: string; episodes: number; secondsPerEpisode: number; language: string; unit?: string }) {
+  const unit = (i.unit || 'Episode').toLowerCase(), total = Math.round((i.episodes * i.secondsPerEpisode) / 60);
   return lines([
     `- ${i.format}. ${i.formatNotes}`,
-    `- ${i.episodes} episode${i.episodes > 1 ? 's' : ''}, each about ${i.secondsPerEpisode} seconds of screen time.`,
+    `- ${i.episodes} ${unit}${i.episodes > 1 ? 's' : ''}, each about ${i.secondsPerEpisode} seconds of screen time${i.episodes > 1 ? ` (about ${total} minutes in all)` : ''}.`,
     `- Frame: ${i.aspect === '9:16' ? 'vertical 9:16, watched on a phone: close-ups and medium shots, one or two people in frame' : `widescreen ${i.aspect}`}.`,
     `- Dialogue language: ${i.language}. Names, places and culture should feel native to the world, not translated.`,
   ]);
@@ -57,6 +59,7 @@ export function bibleText(b: any, o: { language?: string } = {}): string {
     `Genre: ${b?.genre || ''}. Tone: ${b?.tone || ''}.`,
     `Theme: ${b?.theme || ''}`,
     `Dramatic question: ${b?.dramatic_question || ''}`,
+    (b?.season_arc || []).length > 1 && `Season arc:\n${(b.season_arc as string[]).map((x) => `- ${x}`).join('\n')}`,
     `World: ${join([w.place, w.era, w.social_world])}. Sensory palette: ${join(w.sensory_palette)}.`,
     o.language && `Dialogue language: ${o.language}. Action lines are always written in English.`,
     '',
@@ -125,7 +128,7 @@ ${OVERUSED_PREMISES}
 
 The customer's earlier stories and optional creative sparks are listed with the idea. Don't repeat that customer's names, premises, twists or titles. Use a spark only if it genuinely serves the idea; ignore the rest.`;
 
-export function pitchPrompt(i: { prompt: string; format: string; formatNotes: string; aspect: string; episodes: number; secondsPerEpisode: number; language: string; sparks: string[]; recent: string[] }) {
+export function pitchPrompt(i: { prompt: string; format: string; formatNotes: string; aspect: string; episodes: number; secondsPerEpisode: number; language: string; unit?: string; sparks: string[]; recent: string[]; direction?: string; previous?: any[] }) {
   return `THE CUSTOMER'S IDEA
 """
 ${i.prompt}
@@ -139,7 +142,7 @@ ${i.recent.length ? i.recent.map((r) => `- ${r}`).join('\n') : '- none yet'}
 
 OPTIONAL SPARKS (use at most one, and only if it serves the idea)
 ${i.sparks.map((s) => `- ${s}`).join('\n')}
-
+${i.previous?.length ? `\nTAKES THE CUSTOMER ALREADY SAW AND PASSED ON (pitch new ones, not variations of these)\n${i.previous.map((c: any) => `- "${c.title}": ${c.logline}`).join('\n')}\n` : ''}${i.direction ? `\nTHE CUSTOMER'S DIRECTION FOR THE NEW TAKES (follow it)\n"""\n${i.direction}\n"""\n` : ''}
 Pitch three genuinely different takes.`;
 }
 
@@ -196,7 +199,7 @@ ${RENDER_RULES}
 
 ${OVERUSED_PREMISES}`;
 
-export function biblePrompt(i: { prompt: string; concept: any; notes: string[]; recent: string[] } & Parameters<typeof deliverable>[0]) {
+export function biblePrompt(i: { prompt: string; concept: any; notes: string[]; recent: string[]; planned?: number; minutes?: number } & Parameters<typeof deliverable>[0]) {
   const c = i.concept || {};
   return `THE CUSTOMER'S IDEA
 """
@@ -215,7 +218,26 @@ ${i.notes.length ? i.notes.map((n) => `- ${n}`).join('\n') : '- none'}
 THIS CUSTOMER'S EARLIER STORIES (do not reuse their names)
 ${i.recent.length ? i.recent.map((r) => `- ${r}`).join('\n') : '- none yet'}
 
-Develop the story bible: ${i.episodes} episode${i.episodes > 1 ? 's' : ''}.`;
+${(i.planned ?? i.episodes) < i.episodes ? longForm(i) : `Develop the story bible: ${i.episodes} ${(i.unit || 'episode').toLowerCase()}${i.episodes > 1 ? 's' : ''}.`}`;
+}
+
+/** The bible of a long story: a bigger world, the whole run's shape, and only the first batch of episodes in detail. */
+function longForm(i: { episodes: number; planned?: number; minutes?: number; unit?: string }) {
+  const unit = (i.unit || 'Episode').toLowerCase();
+  return `THIS IS A LONG STORY: ${i.episodes} ${unit}s, about ${i.minutes} minutes in all. It needs a bigger world than a short, so for this story only, instead of 2 to 4: 4 to 8 speaking characters (plus any silent recurring ones) and 4 to 10 sets, each still reused across many scenes so faces and rooms stay consistent. Give the secondary characters wants and arcs of their own that feed the main story. Plant setups that pay off across the whole run, not only in the next ${unit}.
+
+Develop the story bible for the whole run. In season_arc, give its shape in 4 to 8 movements, each naming the ${unit}s it spans (e.g. "${unit}s 1-12: ..."), what changes in it and where it leaves the characters. Then plan ${unit}s 1 to ${i.planned} in detail in episodes; the later ${unit}s are planned from your season arc in later passes.`;
+}
+
+export const SEASON_SYSTEM = (format: string) => `You are the showrunner of a long-running drama. The story bible, its season arc and the episodes planned so far are in front of you. You plan the next batch of episodes so the whole run keeps its promise: every episode moves the main story and at least one relationship, escalates or reverses something, and hands over to the next one. Follow the season arc: hit its movements in the episodes it names, and let the story breathe between them with subplots, complications and reversals that grow from the characters' wants and secrets. Keep the same characters, sets and rules; a new character or place only when the story truly needs one, and say so in the summary. Never repeat a turn the story has already used. Plant and pay off the bible's setups where the arc needs them; the final episode of the run lands the ending.
+
+${formatCraft(format)}
+
+${RENDER_RULES}`;
+
+export function seasonPrompt(i: { from: number; to: number; episodes: number; unit?: string; open: string[] }) {
+  const unit = (i.unit || 'Episode').toLowerCase();
+  return `${i.open.length ? `SETUPS AND PAYOFFS ACROSS THE RUN\n${i.open.map((o) => `- ${o}`).join('\n')}\n\n` : ''}Plan ${unit}s ${i.from} to ${i.to} of ${i.episodes}${i.to === i.episodes ? ` (${unit} ${i.to} is the last: it lands the ending)` : ''}: for each, its title, what happens, its opening (the first three seconds) and its ending. Number them from ${i.from}.`;
 }
 
 export const RENAME_SYSTEM = `You are a casting director fixing character names. Some names in this story are the defaults every AI story reaches for. Give each listed character a new full name that people of this exact place, generation, class and community are really called: specific, believable, and easy to tell apart from the rest of the cast. The person stays the same; only the name changes.`;
@@ -319,14 +341,14 @@ Look for:
 
 ${formatCraft(format)}`;
 
-export function critiquePrompt(i: { prompt: string; outline: any[][]; scripts: string[]; checks: string[]; plants: string[] }) {
+export function critiquePrompt(i: { prompt: string; outline: any[][]; scripts: string[]; first?: number; checks: string[]; plants: string[] }) {
   return `THE CUSTOMER'S IDEA
 """
 ${i.prompt}
 """
 
 THE SCREENPLAY, SCENE BY SCENE, WITH ITS CARDS
-${i.scripts.map((s, e) => `=== EPISODE ${e + 1}\n${s}`).join('\n\n')}
+${i.scripts.map((s, e) => `=== EPISODE ${(i.first || 0) + e + 1}\n${s}`).join('\n\n')}
 
 AUTOMATED CHECKS
 ${i.checks.length ? i.checks.map((c) => `- ${c}`).join('\n') : '- nothing flagged'}
@@ -396,7 +418,7 @@ ${JSON.stringify(input.characters, null, 1)}
 PRIOR SET AND PROP DESIGNS (reuse and refine these where they fit)
 ${JSON.stringify(input.seeds || {}, null, 1)}
 
-SCENES (ref = episode + scene number; "present" and "speakers" were detected by a parser and may miss silent characters, so check the text)
+${input.batch ? `THIS IS PART ${input.batch.n} OF ${input.batch.of} OF A LONG SCREENPLAY. The characters, looks, sets, variants and props above come from the earlier parts: when a scene uses one of them, use its exact key, and add new ones only for what is new here. Answer for the scenes below only.\n\n` : ''}SCENES (ref = episode + scene number; "present" and "speakers" were detected by a parser and may miss silent characters, so check the text)
 ${input.scenes.map((s: any) => `--- ${s.ref} | ${s.heading} | present: ${s.present.join(', ') || '-'} | speakers: ${s.speakers.join(', ') || '-'}\n${s.excerpt}`).join('\n')}
 
 Rules for the answer:

@@ -40,23 +40,41 @@ export async function runBreakdown(projectId: string, ctx: JobCtx, o: { force?: 
   }
   if (!scenes.length) throw new PermanentError('No scenes found. Scene headings must start with INT. or EXT.', 'bad_input');
 
-  // 2) Claude breakdown.
+  // 2) Claude breakdown. A long screenplay goes in batches of scenes; each batch sees the designs so far and reuses
+  // their keys, and the answers are merged before the repair, so a character or a set is one asset across the film.
   await ctx.progress(`Breaking down ${scenes.length} scenes across ${episodes.length} episode(s)`);
-  const input = {
-    title: p.title, format: p.format, aspect: p.aspect, language: p.language,
-    world: p.story_bible?.world || '', style: p.style || {},
-    characters: bibleChars.map((c) => ({
-      key: c.id, name: c.name, age: c.age, role: c.role, voice_notes: c.voice,
-      prior_design: c.design?.lock || c.description || '',
-      prior_looks: c.design?.looks || [],
-    })),
-    seeds: p.story_bible?.design_seeds || {},
-    treatment: treatmentNotes(p.story_bible?.treatment),
-    scenes: scenes.map((s) => ({ ref: s.ref, heading: s.heading, location: s.location, time: s.time, int_ext: s.int_ext, present: s.present, speakers: s.speakers, excerpt: s.body.slice(0, 900) })),
-  };
-  const res = await claudeJSON<BreakdownResult>({ task: 'breakdown', system: BREAKDOWN_SYSTEM, prompt: breakdownPrompt(input), input, schema: BreakdownSchema as any, effort: config.anthropic.effort, maxTokens: 32000 });
-  await recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: llmUnits(res.usage), cost: llmCost(res.model, res.usage), ref: 'breakdown' });
-  const bd = repair(res.data, scenes, bibleChars);
+  const size = config.anthropic.breakdownBatchScenes;
+  const batches = Array.from({ length: Math.ceil(scenes.length / size) }, (_, i) => scenes.slice(i * size, (i + 1) * size));
+  const long = batches.length > 1;
+  const answers: any[] = [];
+  for (const [i, batch] of batches.entries()) {
+    if (long) await ctx.progress(`Breaking down scenes ${i * size + 1} to ${i * size + batch.length} of ${scenes.length}`);
+    const sofar = i ? mergeBreakdowns(answers) : null;
+    const input = {
+      title: p.title, format: p.format, aspect: p.aspect, language: p.language,
+      world: p.story_bible?.world || '', style: { ...(sofar?.style || {}), ...(p.style || {}) },
+      characters: bibleChars.map((c) => {
+        const had = sofar?.characters.find((x: any) => up(x.key || x.name) === up(c.id));
+        return {
+          key: c.id, name: c.name, age: c.age, role: c.role, voice_notes: c.voice,
+          prior_design: had?.description || c.design?.lock || c.description || '',
+          prior_looks: had ? had.looks.map((l: any) => ({ key: l.key, name: l.name, wardrobe: l.wardrobe })) : c.design?.looks || [],
+        };
+      }),
+      seeds: sofar ? {
+        sets: sofar.sets.map((x: any) => ({ key: x.key, name: x.name, description: x.description, variants: (x.variants || []).map((v: any) => ({ key: v.key, name: v.name })) })),
+        props: sofar.props.map((x: any) => ({ key: x.key, name: x.name, description: x.description })),
+        other_characters: sofar.characters.filter((x: any) => !bibleChars.some((c) => up(c.id) === up(x.key || x.name))).map((x: any) => ({ key: x.key, name: x.name, description: x.description })),
+      } : p.story_bible?.design_seeds || {},
+      treatment: treatmentNotes(p.story_bible?.treatment),
+      batch: long ? { n: i + 1, of: batches.length } : null,
+      scenes: batch.map((s) => ({ ref: s.ref, heading: s.heading, location: s.location, time: s.time, int_ext: s.int_ext, present: s.present, speakers: s.speakers, excerpt: s.body.slice(0, 900) })),
+    };
+    const res = await claudeJSON<BreakdownResult>({ task: 'breakdown', system: BREAKDOWN_SYSTEM, prompt: breakdownPrompt(input), input, schema: BreakdownSchema as any, effort: config.anthropic.effort, maxTokens: 32000, bulk: long });
+    await recordUsage({ ownerId: p.owner_id, projectId, kind: 'llm', units: llmUnits(res.usage), cost: llmCost(res.model, res.usage), ref: long ? `breakdown:${i + 1}` : 'breakdown' });
+    answers.push(res.data);
+  }
+  const bd = repair(long ? mergeBreakdowns(answers) : answers[0], scenes, bibleChars);
 
   // 3) Write assets + scenes in one transaction.
   await ctx.progress('Saving the asset list');
@@ -154,6 +172,31 @@ function treatmentNotes(t: any) {
     characters: (t.characters || []).map((c: any) => ({ id: c.id, age: c.age, role: c.role, look: c.look, voice: c.voice })),
     sets: t.sets,
   };
+}
+
+const arr = (x: any): any[] => (Array.isArray(x) ? x : []);
+/** The breakdowns of a long screenplay's batches as one: the same key is the same character, look, set, variant or prop. */
+export function mergeBreakdowns(parts: any[]): { style: any; characters: any[]; sets: any[]; props: any[] } {
+  const out = { style: {} as any, characters: [] as any[], sets: [] as any[], props: [] as any[] };
+  const ck = (x: any) => up(x?.key || x?.name), sk = (x: any) => snake(x?.key || x?.name || 'DEFAULT');
+  /** Add `items` to `into` by key; a known key gains the new scenes (and nested lists merged by `nested`). */
+  const fold = (into: any[], items: any[], key: (x: any) => string, nested?: string) => {
+    for (const x of items) {
+      if (!x || typeof x !== 'object' || !key(x)) continue;
+      const have = into.find((y) => key(y) === key(x));
+      if (!have) { into.push({ ...x, scenes: [...arr(x.scenes)], ...(nested ? { [nested]: arr(x[nested]).map((n: any) => ({ ...n, scenes: [...arr(n.scenes)] })) } : {}) }); continue; }
+      have.scenes = [...arr(have.scenes), ...arr(x.scenes)];
+      if (nested) fold(have[nested] ||= [], arr(x[nested]), sk);
+      for (const [k, v] of Object.entries(x)) if (k !== 'scenes' && k !== nested && (have[k] === undefined || have[k] === '' || (k === 'voice' && !have.voice?.brief))) have[k] = v;
+    }
+  };
+  for (const r of parts) {
+    for (const [k, v] of Object.entries(r?.style || {})) if (!out.style[k]) out.style[k] = v; // the first batch sets the look
+    fold(out.characters, arr(r?.characters), ck, 'looks');
+    fold(out.sets, arr(r?.sets), sk, 'variants');
+    fold(out.props, arr(r?.props), sk);
+  }
+  return out;
 }
 
 /** Make Claude's breakdown internally consistent: every scene in one set, looks cover appearances, keys clean. */

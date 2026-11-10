@@ -20,6 +20,7 @@ export function mockClaudeJSON(task: string, input: any): any {
   if (task === 'pitch') return mockPitch(input);
   if (task === 'choose') return { scores: (input.concepts || []).map((_: any, i: number) => ({ concept: i, fidelity: 5, hook: i === 1 ? 5 : 3, stakes: 4, specificity: 4, surprise: i === 1 ? 4 : 3, renderable: 5 })), chosen: 1, notes: ['make the envelope the first thing we see'] };
   if (task === 'bible') return mockBible(input);
+  if (task === 'season') return { episodes: Array.from({ length: input.to - input.from + 1 }, (_, i) => ({ number: input.from + i, title: `Part ${input.from + i}`, summary: 'The secret spreads.', opening: 'a door slams', ending: 'a new threat' })) };
   if (task === 'rename') return { names: (input.rename || []).map((r: any, i: number) => ({ id: r.id, name: ['Rukhsana Rahman', 'Tomasz Carter', 'Ifeoma Bello', 'Matteo Rossi'][i % 4] })) };
   if (task === 'outline') return mockOutline(input);
   if (task === 'scene') return mockScene(input);
@@ -48,10 +49,10 @@ function mockPitch(input: any) {
 
 function mockBible(input: any) {
   const idea = String(input.prompt || 'A story').replace(/\s+/g, ' ').trim();
-  const eps = input.episodes || 1;
+  const eps = input.planned || input.episodes || 1;
   return {
     title: idea.slice(0, 40), logline: idea.slice(0, 120), genre: 'drama', tone: 'intimate, tense', theme: 'the cost of keeping a secret',
-    dramatic_question: 'Will she tell him the truth?',
+    dramatic_question: 'Will she tell him the truth?', season_arc: ['the secret comes back', 'the truth comes out'],
     world: { place: 'a quiet city neighbourhood', era: 'present day', social_world: 'working families', sensory_palette: ['steam from a pot', 'a buzzing streetlight', 'worn linoleum'] },
     characters: [
       { id: 'MAYA', name: 'Maya Rahman', age: '31', role: 'lead', want: 'to keep her past buried', obstacle: 'Leo', secret: 'why she left', arc: 'from hiding to honesty',
@@ -118,12 +119,12 @@ function mockScene(input: any) {
 }
 
 function mockCritique(input: any) {
-  const outline: any[][] = input.outline || [];
+  const outline: any[][] = input.outline || [], first = input.first || 0;
   return {
     scores: { hook: 4, turns: 4, escalation: 3, dialogue: 3, specificity: 3, ending: 4, fidelity: 5 },
     scenes: outline.flatMap((cards, e) => cards.map((_, k) => ({
-      episode: e + 1, scene: k + 1, verdict: e === 0 && k === cards.length - 1 ? 'revise' : 'keep',
-      notes: e === 0 && k === cards.length - 1 ? [{ problem: 'the ending trails off on talk', fix: 'land it on the envelope' }] : [],
+      episode: first + e + 1, scene: k + 1, verdict: first + e === 0 && k === cards.length - 1 ? 'revise' : 'keep',
+      notes: first + e === 0 && k === cards.length - 1 ? [{ problem: 'the ending trails off on talk', fix: 'land it on the envelope' }] : [],
     }))),
   };
 }

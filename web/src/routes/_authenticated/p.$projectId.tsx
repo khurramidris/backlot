@@ -8,12 +8,14 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  Upload,
   Wand2,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { ClipView } from "@/components/ClipView";
+import { CastReview, ScriptReview, StoryReview } from "@/components/StepReview";
 import { StudioShell } from "@/components/layout/StudioShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,8 +45,9 @@ export const Route = createFileRoute("/_authenticated/p/$projectId")({
 });
 
 const STEPS: { label: string; stages: Stage[] }[] = [
-  { label: "Script", stages: ["writing"] },
-  { label: "Cast & sets", stages: ["breakdown", "casting"] },
+  { label: "Story", stages: ["writing", "story_review"] },
+  { label: "Script", stages: ["script_review"] },
+  { label: "Cast & sets", stages: ["breakdown", "casting", "cast_review"] },
   { label: "Shot plan", stages: ["planning"] },
   { label: "Your approval", stages: ["ready"] },
   { label: "Filming", stages: ["rendering"] },
@@ -114,7 +117,7 @@ function ProjectPage() {
       ) : null}
       {stage === "rendering" ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          Shots are filmed one at a time, in story order. Play any finished shot below while the
+          Shots are filmed in story order, a few at a time. Play any finished shot below while the
           rest are filmed.
         </p>
       ) : null}
@@ -124,6 +127,9 @@ function ProjectPage() {
       ) : null}
 
       {stage === "failed" ? <Failed data={data} /> : null}
+      {stage === "story_review" ? <StoryReview data={data} /> : null}
+      {stage === "script_review" ? <ScriptReview data={data} /> : null}
+      {stage === "cast_review" ? <CastReview data={data} /> : null}
       {stage === "ready" ? <Checkpoint data={data} /> : null}
       {stage === "done" ? <Finished data={data} /> : null}
       {stage && ["rendering", "assembling", "done"].includes(stage) ? (
@@ -140,7 +146,7 @@ function ProjectPage() {
 function Timeline({ stage }: { stage: Stage }) {
   const current = STEPS.findIndex((s) => s.stages.includes(stage));
   return (
-    <ol className="mt-8 grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-border bg-border text-center">
+    <ol className="mt-8 grid grid-cols-4 gap-px sm:grid-cols-8 overflow-hidden rounded-lg border border-border bg-border text-center">
       {STEPS.map((s, i) => {
         const done = stage === "done" || i < current;
         const active = i === current && stage !== "done";
@@ -332,6 +338,7 @@ function CutPlayer({ cut, vertical }: { cut: Cut | undefined; vertical: boolean 
 function ShotBoard({ data }: { data: ProjectDetail }) {
   const working = isWorking(data.project.stage);
   const [fixing, setFixing] = useState<Shot | null>(null);
+  const [picking, setPicking] = useState<Shot | null>(null);
   return (
     <section className="mt-12">
       <h2 className="meta-label mb-4">Shots</h2>
@@ -344,8 +351,16 @@ function ShotBoard({ data }: { data: ProjectDetail }) {
           poll={working}
           canFix={data.project.stage === "done"}
           onFix={setFixing}
+          onTakes={setPicking}
         />
       ))}
+      <TakesDialog
+        shot={picking}
+        projectId={data.project.id}
+        aspect={data.project.aspect}
+        resolution={data.project.resolution}
+        onClose={() => setPicking(null)}
+      />
       <FixDialog
         shot={fixing}
         projectId={data.project.id}
@@ -363,6 +378,7 @@ function EpisodeShots({
   poll,
   canFix,
   onFix,
+  onTakes,
 }: {
   episodeId: string;
   label: string;
@@ -370,6 +386,7 @@ function EpisodeShots({
   poll: boolean;
   canFix: boolean;
   onFix: (s: Shot) => void;
+  onTakes: (s: Shot) => void;
 }) {
   const { data: shots } = useQuery({
     queryKey: ["shots", episodeId],
@@ -439,6 +456,14 @@ function EpisodeShots({
                     <Wand2 className="size-3" /> Fix this shot
                   </Button>
                 ) : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-full text-xs"
+                  onClick={() => onTakes(s)}
+                >
+                  Takes ({s.takes.filter((t) => t.status === "succeeded").length})
+                </Button>
               </div>
             </div>
           );
@@ -508,6 +533,163 @@ function FixDialog({
               <Wand2 className="size-4" />
             )}
             Re-shoot
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TakesDialog({
+  shot,
+  projectId,
+  aspect,
+  resolution,
+  onClose,
+}: {
+  shot: Shot | null;
+  projectId: string;
+  aspect: string;
+  resolution: string;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [consent, setConsent] = useState(false);
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: engine.me, enabled: !!shot });
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["project", projectId] });
+    void qc.invalidateQueries({ queryKey: ["shots"] });
+    void qc.invalidateQueries({ queryKey: ["me"] });
+  };
+  const done = (msg: string) => {
+    toast.success(msg);
+    setFile(null);
+    setConsent(false);
+    refresh();
+    onClose();
+  };
+  const use = useMutation({
+    mutationFn: (takeId: string) => engine.useTake(takeId),
+    onSuccess: () => done("Using this take. The episode will be re-edited."),
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const again = useMutation({
+    mutationFn: () => engine.reshoot(shot!.id),
+    onSuccess: () => done("Shooting a new take. Pick it here when it's ready."),
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const upload = useMutation({
+    mutationFn: () => engine.uploadTake(shot!.id, file!),
+    onSuccess: () => done("Your clip is in. The episode will be re-edited."),
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const price =
+    shot && me
+      ? (me.prices.per_second[resolution] ?? me.prices.per_second["768P"] ?? 0) * shot.duration
+      : null;
+  const takes = shot?.takes.filter((t) => t.status === "succeeded" && t.url) ?? [];
+  return (
+    <Dialog open={!!shot} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Takes for shot {shot?.code}</DialogTitle>
+          <DialogDescription>
+            Pick the take you like, shoot a new one, or use your own clip.
+          </DialogDescription>
+        </DialogHeader>
+        {takes.length ? (
+          <div className="grid max-h-[50vh] grid-cols-2 gap-3 overflow-auto sm:grid-cols-3">
+            {takes.map((t) => {
+              const chosen = t.id === shot?.approved_take_id;
+              return (
+                <div
+                  key={t.id}
+                  className={cn(
+                    "overflow-hidden rounded-lg border bg-card",
+                    chosen ? "border-primary" : "border-border",
+                  )}
+                >
+                  <video
+                    src={t.url!}
+                    poster={t.thumb_url ?? undefined}
+                    className={cn(
+                      "w-full bg-black object-cover",
+                      aspect === "9:16" ? "aspect-[9/16]" : "aspect-video",
+                    )}
+                    controls
+                    playsInline
+                    preload="none"
+                  />
+                  <div className="flex items-center justify-between gap-2 p-2 text-xs">
+                    <span>Take {t.n}</span>
+                    {chosen ? (
+                      <span className="flex items-center gap-1 text-primary">
+                        <Check className="size-3" /> In the film
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => use.mutate(t.id)}
+                        disabled={use.isPending}
+                      >
+                        Use this take
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No finished takes yet.</p>
+        )}
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <div className="text-sm font-semibold">Use my own clip</div>
+          <input
+            type="file"
+            accept="video/mp4,video/quicktime,video/webm"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-xs"
+          />
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              className="mt-0.5 accent-[var(--primary)]"
+            />
+            I own this clip, and everyone who appears in it agreed to be in it.
+          </label>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => upload.mutate()}
+            disabled={!file || !consent || upload.isPending}
+          >
+            {upload.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Upload className="size-4" />
+            )}
+            Upload and use it
+          </Button>
+        </div>
+        <DialogFooter>
+          {me?.credits_enforced && price !== null ? (
+            <span className="mr-auto self-center text-xs text-muted-foreground">
+              A new take costs {usd(price)}
+            </span>
+          ) : null}
+          <Button onClick={() => again.mutate()} disabled={again.isPending}>
+            {again.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RotateCcw className="size-4" />
+            )}
+            Shoot a new take
           </Button>
         </DialogFooter>
       </DialogContent>

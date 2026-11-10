@@ -55,19 +55,74 @@ async function parse<T>(res: Response): Promise<T> {
   return json as T;
 }
 
-export type FormatId = "microdrama" | "short_film" | "web_series" | "youtube";
+export type FormatId = "microdrama" | "short_film" | "feature_film" | "web_series" | "youtube";
 
-export const FORMATS: { id: FormatId; label: string; hint: string; aspect: string }[] = [
-  { id: "microdrama", label: "Microdrama", hint: "Vertical, ~75 s episodes", aspect: "9:16" },
-  { id: "short_film", label: "Short film", hint: "Widescreen, 1–5 min", aspect: "16:9" },
-  { id: "web_series", label: "Web series", hint: "2–3 episodes", aspect: "16:9" },
-  { id: "youtube", label: "YouTube story", hint: "Hook-first, 1–5 min", aspect: "16:9" },
+/** `minutes`: the lengths offered for the whole story (any length works; these are presets). */
+export const FORMATS: {
+  id: FormatId;
+  label: string;
+  hint: string;
+  aspect: string;
+  minutes: number[];
+  defaultMinutes: number;
+}[] = [
+  {
+    id: "microdrama",
+    label: "Microdrama",
+    hint: "Vertical, ~75 s episodes, as many as you like",
+    aspect: "9:16",
+    minutes: [1.25, 5, 15, 30, 60, 90],
+    defaultMinutes: 1.25,
+  },
+  {
+    id: "short_film",
+    label: "Short film",
+    hint: "Widescreen, 1–10 min",
+    aspect: "16:9",
+    minutes: [1, 2, 5, 10],
+    defaultMinutes: 2,
+  },
+  {
+    id: "feature_film",
+    label: "Feature film",
+    hint: "Widescreen, made in parts of ~5 min",
+    aspect: "16:9",
+    minutes: [30, 60, 90, 120],
+    defaultMinutes: 90,
+  },
+  {
+    id: "web_series",
+    label: "Web series",
+    hint: "Episodes of a few minutes",
+    aspect: "16:9",
+    minutes: [5, 15, 30, 60],
+    defaultMinutes: 5,
+  },
+  {
+    id: "youtube",
+    label: "YouTube story",
+    hint: "Hook-first, any length",
+    aspect: "16:9",
+    minutes: [2, 5, 10, 20],
+    defaultMinutes: 2,
+  },
 ];
+
+/** 1.25 → "75 sec", 90 → "1 h 30 min", 5 → "5 min". */
+export function formatMinutes(m: number) {
+  if (m < 2) return `${Math.round(m * 60)} sec`;
+  const h = Math.floor(m / 60),
+    r = Math.round(m % 60);
+  return h ? `${h} h${r ? ` ${r} min` : ""}` : `${r} min`;
+}
 
 export type Stage =
   | "writing"
+  | "story_review"
+  | "script_review"
   | "breakdown"
   | "casting"
+  | "cast_review"
   | "planning"
   | "ready"
   | "rendering"
@@ -119,6 +174,19 @@ export type ClipDetail = {
   takes: (Take & { created_at: string; finished_at: string | null })[];
 };
 
+/** One take on the customer's idea, as pitched by the writers' room. */
+export type Concept = {
+  title: string;
+  protagonist: string;
+  logline: string;
+  world: string;
+  engine: string;
+  hook: string;
+  turn: string;
+  ending: string;
+  fresh_because: string;
+};
+
 export type ProjectDetail = {
   clip: ClipDetail | null;
   project: {
@@ -129,8 +197,21 @@ export type ProjectDetail = {
     mode: "vibe" | "studio" | "clip";
     stage: Stage | null;
     stage_error: string | null;
-    brief: { prompt?: string; format?: FormatId; episodes?: number; seconds?: number };
+    brief: {
+      prompt?: string;
+      format?: FormatId;
+      episodes?: number;
+      seconds?: number;
+      review?: boolean;
+    };
     story_bible: { logline?: string; world?: string };
+    autopilot?: {
+      writing?: {
+        phase?: string;
+        concepts?: Concept[];
+        choice?: { chosen: number; scores: Record<string, number>[]; notes: string[] };
+      } | null;
+    };
   };
   episodes: {
     id: string;
@@ -161,7 +242,17 @@ export type Asset = {
   status: string;
   url: string | null;
   parent_id: string | null;
-  meta: { unused?: boolean };
+  error?: string | null;
+  history_count?: number;
+  meta: { unused?: boolean; source?: string };
+};
+
+export type Episode = {
+  id: string;
+  idx: number;
+  title: string;
+  script: string;
+  scenes: { n: number; heading: string; text: string }[];
 };
 
 export type Take = {
@@ -171,6 +262,8 @@ export type Take = {
   url: string | null;
   thumb_url: string | null;
   error: string | null;
+  seconds?: number | null;
+  cost_usd?: number | null;
 };
 
 export type Shot = {
@@ -347,8 +440,19 @@ export type Me = {
   prices: {
     per_second: Record<string, number>;
     setup_fee_usd: number;
-    actions: { image: number; voice: number; breakdown: number; plan: number; revision: number };
+    setup_fee_included_minutes?: number;
+    setup_fee_per_minute_usd?: number;
+    actions: {
+      image: number;
+      voice: number;
+      breakdown: number;
+      plan: number;
+      revision: number;
+      pitch?: number;
+      scene?: number;
+    };
   };
+  renders_at_once?: number;
   packs: { id: string; usd: number; available: boolean }[];
   payments_enabled: boolean;
   clips: { min_seconds: number; max_seconds: number };
@@ -374,17 +478,67 @@ export const engine = {
   preflight: () => call<{ checks: SetupCheck[] }>("GET", "/admin/preflight").then((r) => r.checks),
   projects: () => call<{ projects: ProjectSummary[] }>("GET", "/projects").then((r) => r.projects),
   project: (id: string) => call<ProjectDetail>("GET", `/projects/${id}`),
-  create: (input: { prompt: string; format: FormatId; language?: string }) =>
-    call<{ project: { id: string } }>("POST", "/create", input).then((r) => r.project),
+  create: (input: {
+    prompt: string;
+    format: FormatId;
+    language?: string;
+    total_seconds?: number;
+    review?: boolean;
+  }) => call<{ project: { id: string } }>("POST", "/create", input).then((r) => r.project),
+  quote: (input: { format: FormatId; total_seconds: number }) =>
+    call<{
+      episodes: number;
+      seconds_per_episode: number;
+      total_seconds: number;
+      unit: "Episode" | "Part";
+      setup_fee_usd: number;
+    }>("POST", "/create/quote", input),
+  /** Go on from a step-by-step stop (the chosen take and a note, the script, or the cast). */
+  next: (id: string, input: { concept?: number; note?: string } = {}) =>
+    call<unknown>("POST", `/projects/${id}/continue`, input),
+  repitch: (id: string, note: string) => call<unknown>("POST", `/projects/${id}/repitch`, { note }),
+  saveScript: (episodeId: string, script: string) =>
+    call<unknown>("PATCH", `/episodes/${episodeId}`, { script }),
+  rewriteScene: (episodeId: string, scene: number, note: string) =>
+    call<{ job_id: number }>("POST", `/episodes/${episodeId}/rewrite`, { scene, note }),
+  job: (id: number) =>
+    call<{ job: { id: number; status: string; error: string | null; progress: string | null } }>(
+      "GET",
+      `/jobs/${id}`,
+    ).then((r) => r.job),
+  regenerate: (assetId: string, note?: string) =>
+    call<unknown>("POST", `/assets/${assetId}/generate`, { note: note || null }),
+  describe: (assetId: string, description: string) =>
+    call<unknown>("PATCH", `/assets/${assetId}`, { description }),
+  uploadAsset: (assetId: string, file: File, consent: boolean) => {
+    const f = new FormData();
+    f.append("file", file, file.name);
+    f.append("consent", String(consent));
+    return callForm<unknown>(`/assets/${assetId}/upload`, f);
+  },
+  assetHistory: (assetId: string) =>
+    call<{ history: { index: number; at: string; note: string; url: string | null }[] }>(
+      "GET",
+      `/assets/${assetId}`,
+    ).then((r) => r.history),
+  restoreAsset: (assetId: string, index: number) =>
+    call<unknown>("POST", `/assets/${assetId}/restore`, { index }),
+  useTake: (takeId: string) => call<unknown>("POST", `/takes/${takeId}/approve`, { recut: true }),
+  reshoot: (shotId: string) => call<unknown>("POST", `/shots/${shotId}/retake`, { recut: true }),
+  uploadTake: (shotId: string, file: File) => {
+    const f = new FormData();
+    f.append("file", file, file.name);
+    f.append("consent", "true");
+    f.append("recut", "true");
+    return callForm<{ take_id: string }>(`/shots/${shotId}/upload`, f);
+  },
   produce: (id: string) => call<{ price_usd: number }>("POST", `/projects/${id}/produce`, {}),
   resume: (id: string) => call<unknown>("POST", `/projects/${id}/resume`, {}),
   remove: (id: string) => call<unknown>("DELETE", `/projects/${id}`),
   assets: (id: string) =>
     call<{ assets: Asset[] }>("GET", `/projects/${id}/assets`).then((r) => r.assets),
   episode: (id: string) =>
-    call<{ episode: { id: string; script: string; title: string } }>("GET", `/episodes/${id}`).then(
-      (r) => r.episode,
-    ),
+    call<{ episode: Episode }>("GET", `/episodes/${id}`).then((r) => r.episode),
   shots: (episodeId: string) =>
     call<{ shots: Shot[] }>("GET", `/episodes/${episodeId}/shots`).then((r) => r.shots),
   fixShot: (shotId: string, note: string) =>
@@ -397,8 +551,11 @@ export const engine = {
 
 export const STAGE_LABEL: Record<Stage, string> = {
   writing: "Writing",
+  story_review: "Choose your story",
+  script_review: "Check your script",
   breakdown: "Casting",
   casting: "Casting",
+  cast_review: "Check your cast and sets",
   planning: "Planning shots",
   ready: "Ready for your approval",
   rendering: "Filming",
@@ -407,9 +564,12 @@ export const STAGE_LABEL: Record<Stage, string> = {
   failed: "Needs attention",
 };
 
+/** Stages where the project waits for the customer. */
+export const WAITING: Stage[] = ["story_review", "script_review", "cast_review", "ready"];
+
 /** Stages the autopilot is actively working through (worth polling). */
 export const isWorking = (stage: Stage | null | undefined) =>
-  !!stage && !["ready", "done", "failed"].includes(stage);
+  !!stage && ![...WAITING, "done", "failed"].includes(stage);
 
 export const usd = (v: number) => `$${v.toFixed(2)}`;
 
