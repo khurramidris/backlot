@@ -16,12 +16,21 @@ describe("engine client helpers", () => {
   it("polls only while the autopilot is working", () => {
     expect(isWorking("writing")).toBe(true);
     expect(isWorking("rendering")).toBe(true);
-    for (const stage of ["ready", "done", "failed"] as const) expect(isWorking(stage)).toBe(false);
+    for (const stage of [
+      "story_review",
+      "script_review",
+      "cast_review",
+      "ready",
+      "done",
+      "failed",
+    ] as const)
+      expect(isWorking(stage)).toBe(false);
     expect(isWorking(null)).toBe(false);
   });
 
   it("offers exactly the formats the engine accepts", () => {
     expect(FORMATS.map((f) => f.id).sort()).toEqual([
+      "feature_film",
       "microdrama",
       "short_film",
       "web_series",
@@ -30,7 +39,7 @@ describe("engine client helpers", () => {
   });
 
   it("labels every stage and formats money", () => {
-    expect(Object.keys(STAGE_LABEL)).toHaveLength(9);
+    expect(Object.keys(STAGE_LABEL)).toHaveLength(12);
     expect(usd(3.9)).toBe("$3.90");
   });
 });

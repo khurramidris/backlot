@@ -95,8 +95,9 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
   - With RunPod, the worker uploads each clip straight to our storage through a signed link.
   - `engine/src/capacity.ts` sets the GPU floor: 0 when idle, warm while active, deeper when busy, never above
     the cap. It counts only clips that can run now, so a film's clips waiting their turn keep no GPU warm.
-- **Rendering** (`pipeline/render.ts`): a project's clips render in story order, one at a time
-  (`RENDERS_PER_PROJECT`), and the next starts as soon as one finishes. The customer plays each finished clip on
+- **Rendering** (`pipeline/render.ts`): a project's clips render in story order, up to 4 at a time per
+  customer across all their videos (`MAX_ACTIVE_RENDERS_PER_USER`, `RENDERS_PER_PROJECT`), and the next starts as soon
+  as one finishes. A slot is claimed under a Postgres advisory lock, so the limit holds with many workers. The customer plays each finished clip on
   the project page while the rest are filmed. The previous clip is not sent along as a reference video
   (`CHAIN_CLIPS`, off): its seconds would be billed as input on every render.
 - **Editing** (`pipeline/assemble.ts`): the clips are joined whole, in order, at one size, frame rate and audio

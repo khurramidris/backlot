@@ -55,7 +55,8 @@ Then move video to your own GPUs on RunPod. Follow `docs/SELF-HOSTED-H3.md` (pla
 | `RUNPOD_WARM_MINUTES` | 15 | How long after the last render to stay warm before scaling to 0 |
 | `RUNPOD_JOBS_PER_WORKER` | 2 | Queue depth per GPU before the floor rises |
 | `VIDEO_MAX_INFLIGHT` | 10 | Renders sent to RunPod at once (≈ max workers × 2) |
-| `RENDERS_PER_PROJECT` | 1 | Clips of one film rendering at once, in story order (1 = one by one, watched as they land) |
+| `MAX_ACTIVE_RENDERS_PER_USER` | 4 | Clips filming at once per customer, across all their videos, whatever the clip length |
+| `RENDERS_PER_PROJECT` | empty | Clips of one film at once, in story order (empty = the customer's limit, so one film can use all 4) |
 | `CHAIN_CLIPS` | 0 | 1 sends each scene's previous clip as a reference video: better matching, but its seconds are billed as input |
 | `RUNPOD_MANAGE_SCALING` | 0, then 1 | Start at 0, watch `/v1/admin/capacity`, then let the controller act |
 | `RUNPOD_GPU_PRICE_PER_SECOND` | your rate | Records real GPU cost per clip, for margin reports |
@@ -93,7 +94,8 @@ How the money works:
   credit first.
 - **Everything is charged.** The setup fee (`SETUP_FEE_USD`) pays for a video's first automatic pass (story, screenplay,
   cast, sets, shot plan); rendering is per second. Afterwards each action has its own price (`SELL_IMAGE_USD`,
-  `SELL_VOICE_USD`, `SELL_BREAKDOWN_USD`, `SELL_PLAN_USD`, `SELL_REVISION_USD`), listed for customers on the Billing
+  `SELL_VOICE_USD`, `SELL_BREAKDOWN_USD`, `SELL_PLAN_USD`, `SELL_REVISION_USD`, `SELL_PITCH_USD` for three new story
+  takes, `SELL_SCENE_USD` for a scene rewrite), listed for customers on the Billing
   page. Each charge is taken when the work runs and refunded in full (to the never-expiring balance) if it fails, so
   retries and duplicate clicks never cost the customer. Unaffordable actions are refused up front with a 402. Compare
   "charged" with "our cost" on each customer's Admin page and tune the prices.
@@ -170,6 +172,10 @@ work, run one service with `RUN_WORKER=0` and more with the start command `node 
   |---|---|---|
   | `CLAUDE_MODEL` | `claude-opus-5-5` | Every writing and planning step |
   | `CLAUDE_MODELS` | empty | Per-step models, e.g. `scene:claude-sonnet-5-5,judge:claude-sonnet-5-5,shots:claude-sonnet-5-5` |
+  | `CLAUDE_BULK_MODEL` / `CLAUDE_BULK_STEPS` | `claude-haiku-5-5` / `outline,scene,judge,critique,breakdown,direct,shots` | The cheaper model for the many small calls of long films (from `LONG_FORM_SECONDS`, 900) |
+  | `SEASON_BATCH_EPISODES` / `CRITIQUE_BATCH_SECONDS` / `BREAKDOWN_BATCH_SCENES` | 12 / 600 / 40 | How a long story is cut into calls |
+  | `SETUP_FEE_INCLUDED_MINUTES` / `SETUP_FEE_PER_MINUTE_USD` | 10 / 0.1 | The setup fee grows with story length beyond the first 10 minutes |
+  | `MAX_RUNTIME_SECONDS` | 0 | Longest story a customer can order (0 = no limit) |
   | `STORY_EFFORT` / `PLANNING_EFFORT` | `high` / `medium` | Thinking depth for the story steps / the many shot and judge calls |
   | `SCRIPT_DOCTOR` | 1 | The script editor's notes and the rewrites of the scenes it flags |
   | `KEY_SCENE_DRAFTS` | 2 | Drafts of each episode's opening and ending; a judge keeps the best (1 = off) |

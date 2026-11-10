@@ -96,6 +96,29 @@ carry most of the craft those calls need.
 - `CLAUDE_THINKING=0`: no thinking or effort parameters are sent.
 - Either feature also switches itself off, per model, when the endpoint answers 400 naming it.
 
+## Long films and series (no length cap)
+
+Any length can be ordered: a 90-minute microdrama is 72 episodes, a feature film is parts of about 5 minutes
+(`resolveBrief` in `writer.ts` splits the total). From `LONG_FORM_SECONDS` (15 minutes) the room works season by
+season: the bible plans the whole arc (`season_arc`) and the first `SEASON_BATCH_EPISODES`, a `season` call plans
+each later batch, outlines see only the last two episodes, the critique reads `CRITIQUE_BATCH_SECONDS` at a time and
+the breakdown designs `BREAKDOWN_BATCH_SCENES` scenes per call (merged, so faces and sets stay the same). The many
+small calls (`CLAUDE_BULK_STEPS`) go to `CLAUDE_BULK_MODEL`; the story decisions (pitch, choose, bible, season) stay
+on `CLAUDE_MODEL`.
+
+Estimated writing cost for a 90-minute microdrama (`eval:story -- --long` with `ESTIMATE_COSTS=1` on mocks, so token
+counts are guesses): about $1.90 for the writing, $0.02 for the breakdown and $0.55 for all shot plans. Check with a
+real run before trusting it.
+
+## Step by step
+
+With `review: true` on `/v1/create` (the dashboard's default), the autopilot stops three times:
+`story_review` (three takes; the customer picks one and can add a note, or pays `SELL_PITCH_USD` for three new
+ones), `script_review` (edit any scene free, or pay `SELL_SCENE_USD` to rewrite one from a note) and `cast_review`
+(remake a picture for `SELL_IMAGE_USD`, change its description, or upload their own). `POST
+/v1/projects/:id/continue` moves on. After filming, every shot keeps all its takes: the customer picks one, pays
+for a new one, or uploads their own clip, and the episode is re-edited.
+
 ## Tuning
 
 - Prompts: `engine/src/pipeline/prompts.ts` (format registers in `FORMAT_CRAFT`, the bible as shared context in
