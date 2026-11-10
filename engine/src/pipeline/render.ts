@@ -1,7 +1,8 @@
 // Rendering: one take = one H3 task. Submit → poll every ~10 s → copy the MP4 into our own
 // storage (MiniMax links expire) → verify it with ffprobe → thumbnail → ready for review.
-// A project's clips render in story order, one at a time by default (RENDERS_PER_PROJECT), so the customer can
-// watch the finished ones while the rest render; when one finishes, the next starts straight away.
+// A customer renders up to MAX_ACTIVE_RENDERS_PER_USER clips at once (4), across everything they make, whatever each
+// clip's length. A film's clips go in story order and may use all of those slots (RENDERS_PER_PROJECT), so the customer
+// watches the finished ones while the rest render; when one finishes, the next starts straight away.
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,8 +20,8 @@ import { debit, sellPrice, settleTake } from '../billing.js';
 import { probe, thumbnail } from '../media/ffmpeg.js';
 import { compileShot, validateH3, costOf } from './compiler.js';
 import { compileInputFor, projectAssets } from './shots.js';
-import { buildClipRequest, providerFor, refreshClip } from './clips.js';
-import { moderate } from '../moderation.js';
+import { buildClipRequest, providerFor, refreshClip, prepVideo, jpeg } from './clips.js';
+import { moderate, refusal } from '../moderation.js';
 
 interface VideoApi {
   createVideoTask(body: H3Request, o: { key: string }): Promise<string>;
@@ -102,20 +103,35 @@ export async function buildRequest(shot: any, resolution: string) {
 }
 
 export async function submitTake(takeId: string): Promise<any | Again> {
-  const [t] = await sql`select * from takes where id = ${takeId}`;
+  let [t] = await sql`select * from takes where id = ${takeId}`;
+  // A claim without a provider task is an earlier try of this job that stopped half way: give the slot back and go again.
+  if (t?.status === 'submitted' && !t.provider_task_id) [t] = await sql`update takes set status = 'pending', submitted_at = null where id = ${takeId} returning *`;
   if (!t || t.status !== 'pending') return { skipped: t?.status };
-  const [{ active }] = await sql`select count(*)::int active from takes where status in ('submitted','running')`;
-  if (active >= config.minimax.maxConcurrentVideo) return { again: 15, progress: `waiting for a render slot (${active} running)` };
-  const [{ mine }] = await sql`select count(*)::int mine from takes t join projects p on p.id = t.project_id
-    where t.status in ('submitted','running') and p.owner_id = (select owner_id from projects where id = ${t.project_id})`;
-  if (mine >= config.minimax.maxConcurrentPerUser) return { again: 15, progress: `waiting for one of your ${mine} renders to finish` };
   const [shot] = await sql`select s.*, e.idx episode_idx from shots s join episodes e on e.id = s.episode_id where s.id = ${t.shot_id}`;
-  // Story order: this clip waits while the project has its clips rendering, or earlier clips still waiting to start.
-  const [{ busy, ahead }] = await sql`select count(*) filter (where t.status in ('submitted','running'))::int busy,
-      count(*) filter (where t.status = 'pending' and t.id <> ${takeId} and (e.idx, s.idx, t.created_at) < (${shot.episode_idx}::int, ${shot.idx}::int, ${t.created_at}::timestamptz))::int ahead
-    from takes t join shots s on s.id = t.shot_id join episodes e on e.id = s.episode_id where t.project_id = ${t.project_id}`;
-  if (busy + ahead >= config.minimax.maxConcurrentPerProject) return { again: 10, progress: 'waiting for the clip before it' };
-  const { body, loggable, owner, provider, mode } = await buildRequest(shot, t.resolution);
+  // The checks and the claim happen under one lock, so two clips finishing their checks at the same moment can't both
+  // take the last slot: the limits (all renders, the customer's 4, the film's story order) hold exactly.
+  const wait = await sql.begin(async (tx): Promise<Again | null> => {
+    await tx`select pg_advisory_xact_lock(724001)`;
+    const [{ active }] = await tx`select count(*)::int active from takes where status in ('submitted','running')`;
+    if (active >= config.minimax.maxConcurrentVideo) return { again: 15, progress: `waiting for a render slot (${active} running)` };
+    const [{ mine }] = await tx`select count(*)::int mine from takes t join projects p on p.id = t.project_id
+      where t.status in ('submitted','running') and p.owner_id = (select owner_id from projects where id = ${t.project_id})`;
+    if (mine >= config.minimax.maxConcurrentPerUser) return { again: 15, progress: `waiting for one of your ${mine} renders to finish` }; // startNext wakes it sooner
+    // Story order: this clip waits while the project has its clips rendering, or earlier clips still waiting to start.
+    const [{ busy, ahead }] = await tx`select count(*) filter (where t.status in ('submitted','running'))::int busy,
+        count(*) filter (where t.status = 'pending' and t.id <> ${takeId} and (e.idx, s.idx, t.created_at) < (${shot.episode_idx}::int, ${shot.idx}::int, ${t.created_at}::timestamptz))::int ahead
+      from takes t join shots s on s.id = t.shot_id join episodes e on e.id = s.episode_id where t.project_id = ${t.project_id}`;
+    // A long film queues hundreds of clips: those far back in the line check less often (startNext wakes the next ones).
+    if (busy + ahead >= config.minimax.maxConcurrentPerProject) return { again: Math.min(120, 10 + 2 * ahead), progress: ahead ? `waiting for the ${ahead} clip${ahead > 1 ? 's' : ''} before it` : 'waiting for the clip before it' };
+    const [claimed] = await tx`update takes set status = 'submitted', submitted_at = clock_timestamp() where id = ${takeId} and status = 'pending' returning id`;
+    return claimed ? null : { again: 0, progress: 'already started' };
+  });
+  if (wait) return wait;
+  /** The slot is given back when the clip can't be sent this time (it is tried again). */
+  const unclaim = () => sql`update takes set status = 'pending', submitted_at = null where id = ${takeId} and status = 'submitted' and provider_task_id is null`;
+  let built: Awaited<ReturnType<typeof buildRequest>>;
+  try { built = await buildRequest(shot, t.resolution); } catch (e) { if (e instanceof PermanentError) await failTake(takeId, shot.id, e.message, e.code || 'bad_request'); else await unclaim(); throw e; }
+  const { body, loggable, owner, provider, mode } = built;
   // A prompt the customer wrote by hand goes straight to the video model: check it first (clips are checked on creation).
   if (shot.prompt_locked && mode !== 'clip') {
     const text = (body.content.find((x) => x.type === 'text') as any)?.text || '';
@@ -124,15 +140,17 @@ export async function submitTake(takeId: string): Promise<any | Again> {
   }
   try {
     const taskId = await mm(provider).createVideoTask(body, { key: takeKey(t) });
-    await sql`update takes set status = 'submitted', provider = ${provider}, provider_task_id = ${taskId}, request = ${sql.json(loggable)}, submitted_at = now() where id = ${takeId}`;
+    await sql`update takes set status = 'submitted', provider = ${provider}, provider_task_id = ${taskId}, request = ${sql.json(loggable)} where id = ${takeId}`;
     await sql`update shots set status = 'rendering', updated_at = now() where id = ${shot.id}`;
     await enqueue('take.poll', { takeId }, { projectId: t.project_id, delaySec: config.minimax.pollSeconds, maxAttempts: 8 });
     return { task_id: taskId };
   } catch (e: any) {
     if (e instanceof ProviderError && e.retryable) {
+      await unclaim();
       if (e.code === 'rate_limited') return { again: 30, progress: 'MiniMax rate limit, retrying' };
       throw e; // network / 5xx: the queue retries with backoff
     }
+    if (!(e instanceof ProviderError)) { await unclaim(); throw e; } // something unexpected: the queue retries it
     await failTake(takeId, shot.id, e.message, e.code || 'submit_failed', loggable);
     throw new PermanentError(e.message, e.code);
   }
@@ -211,8 +229,13 @@ async function failTake(takeId: string, shotId: string, error: string, code: str
 }
 
 /** A clip finished: the project's next waiting clip starts now rather than at its next check. */
+/** A render slot freed up: wake the owner's next few waiting clips (oldest first, so a film keeps its story order). */
 async function startNext(projectId: string) {
-  await sql`update jobs set run_after = now() where kind = 'take.submit' and status = 'queued' and project_id = ${projectId} and run_after > now()`;
+  await sql`update jobs set run_after = now() where id in (
+    select j.id from jobs j join projects p on p.id = j.project_id
+    where j.kind = 'take.submit' and j.status = 'queued' and j.run_after > now()
+      and p.owner_id = (select owner_id from projects where id = ${projectId})
+    order by j.id limit ${config.minimax.maxConcurrentPerUser * 2})`;
 }
 
 export async function refreshEpisodeStatus(shotId: string) {
@@ -227,4 +250,36 @@ export async function refreshEpisodeStatus(shotId: string) {
 export async function takeFailedHook(p: any) {
   const [t] = await sql`select * from takes where id = ${p.takeId}`;
   if (t && ['pending', 'submitted', 'running'].includes(t.status)) await failTake(t.id, t.shot_id, 'render job gave up after repeated errors', 'job_failed');
+}
+
+/**
+ * The customer's own video for a shot (step by step): checked like any upload, made 24 fps H.264 of at most 15 s, kept
+ * as a new take and used for the shot. Nothing is generated, so nothing is charged.
+ */
+export async function uploadTake(shotId: string, data: Buffer, uid: string, consent: boolean) {
+  const [s] = await sql`select s.* from shots s join projects p on p.id = s.project_id where s.id = ${shotId} and p.owner_id = ${uid}`;
+  if (!s) throw new PermanentError('shot not found', 'not_found');
+  if (!consent) throw new PermanentError('Confirm that you own this video and that everyone in it agreed to be in your film.', 'consent_required');
+  const [busy] = await sql`select id from takes where shot_id = ${shotId} and status in ('pending','submitted','running') limit 1`;
+  if (busy) throw new PermanentError('This shot is being filmed right now. Upload your video once it finishes.', 'bad_state');
+  const dir = await mkdtemp(join(tmpdir(), 'uptake-'));
+  try {
+    const v = await prepVideo(data, dir);
+    const verdict = await moderate({ ownerId: uid, projectId: s.project_id, text: 'A video the customer uploaded to use as one shot of their film.', images: v.frames.map(jpeg) });
+    if (!verdict.allowed) throw refusal(verdict);
+    const info = await probe(v.file);
+    const [t] = await sql`insert into takes (project_id, shot_id, n, provider, status, resolution, seconds, cost_usd, settled, request, submitted_at)
+      values (${s.project_id}, ${shotId}, coalesce((select max(n) from takes where shot_id = ${shotId}), 0) + 1, 'upload', 'running', '768P', 0, 0, true,
+              ${sql.json({ source: 'upload', consent: { by: uid, at: new Date().toISOString() } })}, now()) returning *`;
+    const key = takeKey(t), thumbKey = `projects/${t.project_id}/takes/${t.id}.jpg`, thumbLocal = join(dir, 'thumb.jpg');
+    await storage.putFile(key, v.file, 'video/mp4');
+    await thumbnail(v.file, thumbLocal, 0.4);
+    await storage.putFile(thumbKey, thumbLocal, 'image/jpeg');
+    const problems = info.has_audio ? [] : ['no audio track'];
+    await sql`update takes set status = 'succeeded', file_key = ${key}, thumb_key = ${thumbKey}, media = ${sql.json({ ...info, problems, uploaded: true } as any)},
+      error = ${problems.join('; ') || null}, finished_at = now() where id = ${t.id}`;
+    await sql`update shots set status = 'approved', approved_take_id = ${t.id}, error = null, updated_at = now() where id = ${shotId}`;
+    await refreshEpisodeStatus(shotId);
+    return { take_id: t.id, n: t.n, seconds: info.duration };
+  } finally { await rm(dir, { recursive: true, force: true }); }
 }

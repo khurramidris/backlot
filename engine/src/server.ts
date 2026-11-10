@@ -14,14 +14,14 @@ import { requireUser } from './auth.js';
 import { enqueue, PermanentError } from './queue.js';
 import { createProject } from './pipeline/importer.js';
 import { queueAllAssets, approveAsset, uploadAsset } from './pipeline/assets.js';
-import { queueRender, refreshEpisodeStatus, mm, resolutionsFor } from './pipeline/render.js';
+import { queueRender, refreshEpisodeStatus, mm, resolutionsFor, uploadTake } from './pipeline/render.js';
 import { createClip, retakeClip, type Upload } from './pipeline/clips.js';
 import { requestCut } from './pipeline/assemble.js';
 import { costOf } from './pipeline/compiler.js';
 import { projectSpend } from './usage.js';
 import { ensureAccount, balanceOf, balances, settleTake, sellPrice, debit, planOf, requirePlan, requireCredit, storageUsed, storageQuotaBytes } from './billing.js';
 import { paymentsEnabled, subscribeCheckout, topupCheckout, portalUrl, verifyLemonSignature, handleLemonEvent } from './lemonsqueezy.js';
-import { resolveBrief } from './pipeline/writer.js';
+import { resolveBrief, setupFeeFor, splitScenes, unitOf, FORMATS } from './pipeline/writer.js';
 import { startAutopilot } from './pipeline/autopilot.js';
 import { endpointHealth } from './providers/runpod.js';
 import { preflight } from './preflight.js';
@@ -40,7 +40,7 @@ const fileLimit = bodyLimit({ maxSize: 30 * 1024 * 1024, onError: tooBig });
 const uploadLimit = bodyLimit({ maxSize: 500 * 1024 * 1024, onError: tooBig }); // rendered clips PUT by the GPU worker
 const clipLimit = bodyLimit({ maxSize: 150 * 1024 * 1024, onError: tooBig }); // a quick clip's pictures, video and voice
 app.use('*', (c, next) => (c.req.method === 'PUT' && c.req.path.startsWith('/files/') ? uploadLimit
-  : /multipart\/form-data/i.test(c.req.header('content-type') || '') ? (c.req.path === '/v1/clips' ? clipLimit : fileLimit) : jsonLimit)(c, next));
+  : /multipart\/form-data/i.test(c.req.header('content-type') || '') ? (/^\/v1\/(clips|shots\/[^/]+\/upload)$/.test(c.req.path) ? clipLimit : fileLimit) : jsonLimit)(c, next));
 
 app.use('*', cors({ origin: config.corsOrigins.includes('*') ? '*' : config.corsOrigins, allowHeaders: ['authorization', 'content-type', 'x-engine-key', 'x-user-id'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] }));
 
@@ -105,6 +105,9 @@ v1.post('/create', limit('create', 30, 3600));
 v1.post('/projects', limit('create', 30, 3600));
 v1.post('/clips', limit('create', 30, 3600));
 v1.post('/clips/:id/retake', limit('render', 200, 3600));
+v1.post('/projects/:id/repitch', limit('render', 200, 3600));
+v1.post('/episodes/:id/rewrite', limit('render', 200, 3600));
+v1.post('/shots/:id/upload', limit('assets', 300, 3600));
 v1.use('/billing/*', limit('billing', 30, 3600));
 v1.post('/shots/:id/retake', limit('render', 200, 3600));
 v1.post('/shots/:id/render', limit('render', 200, 3600));
@@ -233,11 +236,60 @@ v1.post('/create', async (c) => {
     const [p] = await tx`insert into projects (owner_id, title, format, aspect, language, mode, stage, brief, settings)
       values (${uid}, ${brief.prompt.slice(0, 80)}, ${brief.engineFormat}, ${brief.aspect}, ${brief.language}, 'vibe', 'writing', ${tx.json(brief as any)},
               ${tx.json({ chain_clips: true, burn_subtitles: false })}) returning *`;
-    const fee = await debit(tx, uid, config.credits.setupFeeUsd, 'setup_fee', p.id);
+    const fee = await debit(tx, uid, setupFeeFor(brief), 'setup_fee', p.id);
     if (fee) await tx`update projects set autopilot = ${tx.json({ setup_fee: fee })} where id = ${p.id}`;
     return p;
   });
   return c.json({ project: plain({ ...p, source: undefined }), job_id: await startAutopilot(p.id) }, 201);
+});
+/** What a story of this length costs to write and cast, before anyone presses Create. */
+v1.post('/create/quote', async (c) => {
+  const brief = resolveBrief({ prompt: 'a quote for the price of a story', ...(await body(c)) });
+  return c.json({ episodes: brief.episodes, seconds_per_episode: brief.seconds, total_seconds: brief.episodes * brief.seconds, unit: unitOf(brief.format), setup_fee_usd: setupFeeFor(brief) });
+});
+
+// ───────── step by step: the customer checks the story, the script and the cast before the film is made ─────────
+/** Go on from a stop: the take the customer chose (optionally with a note), the script as it stands, or the cast as approved. */
+v1.post('/projects/:id/continue', async (c) => {
+  const p = await ownProject(c, c.req.param('id'));
+  await requirePlan(c.get('uid'));
+  const b = await body(c);
+  const st = p.autopilot || {};
+  if (p.stage === 'story_review') {
+    const w = st.writing || {};
+    const n = (w.concepts || []).length;
+    const pick = b.concept === undefined ? w.choice?.chosen ?? 0 : Number(b.concept);
+    if (!Number.isInteger(pick) || pick < 0 || pick >= n) throw new PermanentError(`concept must be a take number from 0 to ${n - 1}`);
+    const note = typeof b.note === 'string' ? b.note.trim().slice(0, 2000) : '';
+    const choice = { ...(w.choice || { scores: [], notes: [] }), chosen: pick, notes: [...(w.choice?.notes || []), ...(note ? [`The customer's own note, which comes first: ${note}`] : [])] };
+    await sql`update projects set stage = 'writing', stage_error = null, autopilot = autopilot || ${sql.json({ writing: { ...w, choice, picked: true } })}, updated_at = now()
+      where id = ${p.id} and stage = 'story_review'`;
+  } else if (p.stage === 'script_review') {
+    await sql`update projects set stage = 'breakdown', stage_error = null, updated_at = now() where id = ${p.id} and stage = 'script_review'`;
+  } else if (p.stage === 'cast_review') {
+    const [busy] = await sql`select id from jobs where project_id = ${p.id} and kind = 'asset.generate' and status in ('queued','running') limit 1`;
+    if (busy) throw new PermanentError('Some pictures are still being made. Continue once they are ready.', 'bad_state');
+    await sql`update projects set stage = 'casting', stage_error = null, autopilot = autopilot || '{"cast_confirmed": true}'::jsonb, updated_at = now()
+      where id = ${p.id} and stage = 'cast_review'`;
+  } else throw new PermanentError('This project is not waiting for you.', 'bad_state');
+  return c.json({ job_id: await startAutopilot(p.id) }, 202);
+});
+/** Three new takes on the idea, optionally with the customer's direction (paid; refunded if they can't be written). */
+v1.post('/projects/:id/repitch', async (c) => {
+  const p = await ownProject(c, c.req.param('id'));
+  if (p.stage !== 'story_review') throw new PermanentError('New takes can be asked for while you choose the story.', 'bad_state');
+  await requirePlan(c.get('uid'));
+  const b = await body(c);
+  const direction = typeof b.note === 'string' ? b.note.trim().slice(0, 2000) : '';
+  const w = p.autopilot?.writing || {};
+  await sql.begin(async (tx) => {
+    const fee = await debit(tx, c.get('uid'), config.credits.actions.pitch, 'pitch', p.id);
+    const writing = { phase: 'pitch', tries: 0, direction: direction || undefined, concepts: [...(w.previous || []), ...(w.concepts || [])].slice(-9) };
+    const [ok] = await tx`update projects set stage = 'writing', stage_error = null, autopilot = autopilot || ${tx.json({ writing, repitch_fee: fee } as any)}, updated_at = now()
+      where id = ${p.id} and stage = 'story_review' returning id`;
+    if (!ok) throw new PermanentError('New takes are already being written.', 'bad_state');
+  });
+  return c.json({ job_id: await startAutopilot(p.id) }, 202);
 });
 /** The checkpoint: the customer has seen the script, cast and price, and wants the film rendered. */
 v1.post('/projects/:id/produce', async (c) => {
@@ -402,7 +454,23 @@ v1.post('/projects/:id/music', async (c) => {
 });
 
 // ───────── episodes, shots, takes ─────────
-v1.get('/episodes/:id', async (c) => { const e = await own(c, 'episodes', c.req.param('id')); return c.json({ episode: e }); });
+v1.get('/episodes/:id', async (c) => {
+  const e = await own(c, 'episodes', c.req.param('id'));
+  const scenes = splitScenes(e.script).scenes.map((text, i) => ({ n: i + 1, heading: text.split('\n')[0], text }));
+  return c.json({ episode: { ...e, scenes } });
+});
+/** Rewrite one scene from the customer's note (paid when it runs, refunded if it fails). Scene numbers start at 1. */
+v1.post('/episodes/:id/rewrite', async (c) => {
+  const e = await own(c, 'episodes', c.req.param('id'));
+  await requirePlan(c.get('uid'));
+  const b = await body(c);
+  const note = typeof b.note === 'string' ? b.note.trim().slice(0, 1000) : '';
+  if (note.length < 3) throw new PermanentError('Say what should change in the scene.');
+  const scene = Number(b.scene);
+  if (!Number.isInteger(scene) || scene < 1 || scene > splitScenes(e.script).scenes.length) throw new PermanentError('scene must be a scene number of this episode');
+  await requireCredit(c.get('uid'), config.credits.actions.scene);
+  return c.json({ job_id: await enqueue('scene.rewrite', { episodeId: e.id, scene, note }, { projectId: e.project_id, maxAttempts: 2, dedupeKey: `rewrite:${e.id}:${scene}` }) }, 202);
+});
 v1.patch('/episodes/:id', async (c) => {
   const e = await own(c, 'episodes', c.req.param('id'));
   const b = await body(c);
@@ -469,19 +537,35 @@ v1.post('/shots/:id/retake', async (c) => {
     await sql`update shots set status = ${s.status}, approved_take_id = ${s.approved_take_id} where id = ${s.id}`;
     throw e;
   }
-  if (b.recut) { // vibe projects: once the retake renders, use it and rebuild the finished episode
-    const [p] = await sql`update projects set stage = 'rendering', stage_error = null, autopilot = autopilot || '{"cuts": null}'::jsonb, updated_at = now()
-      where id = ${s.project_id} and mode = 'vibe' and stage in ('done','rendering','assembling') returning id`;
-    if (p) await startAutopilot(s.project_id);
-  }
+  if (b.recut) await recut(s.project_id); // vibe projects: once the retake renders, use it and rebuild the finished episode
   return c.json(out, 202);
 });
+/** A vibe project whose shots changed after filming: wait for anything still rendering, then edit the film again. */
+async function recut(projectId: string) {
+  const [p] = await sql`update projects set stage = 'rendering', stage_error = null, autopilot = autopilot || '{"cuts": null}'::jsonb, updated_at = now()
+    where id = ${projectId} and mode = 'vibe' and stage in ('done','rendering','assembling') returning id`;
+  if (p) await startAutopilot(projectId);
+}
 v1.post('/takes/:id/approve', async (c) => {
   const t = await own(c, 'takes', c.req.param('id'));
   if (t.status !== 'succeeded') throw new PermanentError('Only a finished take can be approved.', 'bad_state');
   await sql`update shots set status = 'approved', approved_take_id = ${t.id}, updated_at = now() where id = ${t.shot_id}`;
   await refreshEpisodeStatus(t.shot_id);
+  const b = await body(c);
+  if (b.recut) await recut(t.project_id);
   return c.json({ approved: true });
+});
+/** The customer's own video for a shot, used in place of a generated take (vibe projects re-edit the film). */
+v1.post('/shots/:id/upload', async (c) => {
+  const s = await own(c, 'shots', c.req.param('id'));
+  await requirePlan(c.get('uid'));
+  const form = await c.req.parseBody();
+  const f = form['file'] as File;
+  if (!f || typeof f === 'string') throw new PermanentError('send multipart form-data with a "file" field');
+  if (f.size > 150 * 1024 * 1024) throw new PermanentError('file over 150 MB');
+  const r = await uploadTake(s.id, Buffer.from(await f.arrayBuffer()), c.get('uid'), String(form['consent'] || '') === 'true');
+  if (String(form['recut'] || '') === 'true') await recut(s.project_id);
+  return c.json(r, 201);
 });
 v1.post('/takes/:id/reject', async (c) => {
   const t = await own(c, 'takes', c.req.param('id'));
@@ -558,7 +642,10 @@ v1.get('/me', async (c) => {
     user_id: uid, email: c.get('email'), is_admin: config.admins.includes(uid), balance_usd: credits.total, credits, credits_enforced: config.credits.enforce,
     plan: { ...(await planOf(uid)), name: config.plan.name, price_usd: config.plan.priceUsd, credits_usd: config.plan.creditsUsd, storage_gb: config.plan.storageGb },
     storage: { used_bytes: await storageUsed(uid), quota_bytes: storageQuotaBytes() },
-    prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd, actions: config.credits.actions },
+    prices: { per_second: config.credits.sellPerSecond, setup_fee_usd: config.credits.setupFeeUsd, setup_fee_included_minutes: config.credits.setupFeeIncludedMinutes,
+      setup_fee_per_minute_usd: config.credits.setupFeePerMinuteUsd, actions: config.credits.actions },
+    formats: Object.fromEntries(Object.entries(FORMATS).map(([id, f]) => [id, { unit: f.unit, seconds: f.seconds, episodes: [f.episodes[0], f.episodes[1] === Number.MAX_SAFE_INTEGER ? null : f.episodes[1]], defaults: f.defaults }])),
+    renders_at_once: config.minimax.maxConcurrentPerUser,
     clips: { min_seconds: config.clips.minSeconds, max_seconds: config.clips.maxSeconds },
     packs: config.credits.packs.map((p) => ({ id: p.id, usd: p.usd, available: !!p.variantId })),
     payments_enabled: paymentsEnabled(), recent: events,

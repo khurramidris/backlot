@@ -5,6 +5,8 @@
 //   Mock plumbing check (free):   DATABASE_URL=postgres:///evaldb MOCK_PROVIDERS=1 npx tsx scripts/eval-story.ts
 //   Real run (costs money):       DATABASE_URL=… ANTHROPIC_API_KEY=… EVAL_CONFIRM=1 npx tsx scripts/eval-story.ts [--only 3]
 //   See every prompt as sent:     add PROMPT_LOG_DIR=data/prompts (works in mock runs too, for free)
+//   A whole 90-minute microdrama:  add --long (one idea, 72 episodes; shot plans for the first episode only)
+//   Estimate what a run costs:     MOCK_PROVIDERS=1 ESTIMATE_COSTS=1 … (prices the mock's prompts as real calls)
 //
 // A real run makes about 20 to 30 Claude calls per idea (most of them small scene and shot calls), roughly $1–3 per
 // idea at Opus prices with high effort. Images and video are not generated. Output: data/eval/<time>/report.md plus
@@ -23,7 +25,10 @@ const { resolveBrief, writeProduction } = await import('../src/pipeline/writer.j
 const { runBreakdown } = await import('../src/pipeline/breakdown.js');
 const { planEpisode } = await import('../src/pipeline/shots.js');
 
-const IDEAS: { prompt: string; format: string; language?: string }[] = [
+const LONG = process.argv.includes('--long');
+const IDEAS: { prompt: string; format: string; language?: string; total_seconds?: number }[] = LONG ? [
+  { prompt: "A night-shift nurse finds a letter in a patient's coat that proves her husband is alive.", format: 'microdrama', total_seconds: 90 * 60 },
+] : [
   { prompt: "A night-shift nurse finds a letter in a patient's coat that proves her husband is alive.", format: 'microdrama' },
   { prompt: "A night-shift nurse finds a letter in a patient's coat that proves her husband is alive.", format: 'microdrama' }, // same idea again: should not repeat
   { prompt: 'Two rival food-truck owners are forced to share one parking spot for a week.', format: 'short_film' },
@@ -53,7 +58,7 @@ const names: string[] = [];
 for (const [n, idea] of IDEAS.slice(0, only).entries()) {
   const t0 = Date.now();
   console.log(`\n${n + 1}. ${idea.prompt} (${idea.format})`);
-  const brief = resolveBrief({ prompt: idea.prompt, format: idea.format, language: idea.language || 'English' });
+  const brief = resolveBrief({ prompt: idea.prompt, format: idea.format, language: idea.language || 'English', total_seconds: idea.total_seconds });
   const [p] = await sql`insert into projects (owner_id, title, format, aspect, language, mode, stage, brief, settings)
     values (${OWNER}, ${idea.prompt.slice(0, 80)}, ${brief.engineFormat}, ${brief.aspect}, ${brief.language}, 'vibe', 'writing', ${sql.json(brief as any)}, ${sql.json({ chain_clips: true })}) returning id`;
   const dir = join(OUT, `${n + 1}-${slug(idea.prompt)}`);
@@ -68,7 +73,13 @@ for (const [n, idea] of IDEAS.slice(0, only).entries()) {
     const eps = await sql`select idx, title, script, direction from episodes where project_id = ${p.id} order by idx`;
     const assets = await sql`select kind, key, name, description, meta from assets where project_id = ${p.id} order by kind, key`;
     const shots = await sql`select code, duration, plan, prompt from shots where episode_id = ${ep.id} order by idx`;
-    const [{ cost }] = await sql`select coalesce(sum(cost_usd), 0)::float cost from usage_events where project_id = ${p.id}`;
+    const [{ cost, writing, design, shotPlan }] = await sql`select coalesce(sum(cost_usd), 0)::float cost,
+        coalesce(sum(cost_usd) filter (where ref_id not like 'breakdown%' and ref_id not like 'plan:%' and ref_id not like 'direct:%'), 0)::float writing,
+        coalesce(sum(cost_usd) filter (where ref_id like 'breakdown%'), 0)::float design,
+        coalesce(sum(cost_usd) filter (where ref_id like 'plan:%' or ref_id like 'direct:%'), 0)::float "shotPlan"
+      from usage_events where project_id = ${p.id}`;
+    const nEps = (await sql`select count(*)::int n from episodes where project_id = ${p.id}`)[0].n;
+    console.log(`  cost: writing $${writing.toFixed(2)}, breakdown $${design.toFixed(2)}, shot plan $${shotPlan.toFixed(2)} for episode 1 (about $${(shotPlan * nEps).toFixed(2)} for all ${nEps})${process.env.ESTIMATE_COSTS === '1' ? ' (estimated from prompt sizes)' : ''}`);
     const sb = proj.story_bible || {};
 
     await writeFile(join(dir, 'bible.json'), JSON.stringify(sb.treatment, null, 2));

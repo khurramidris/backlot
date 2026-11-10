@@ -180,15 +180,19 @@ assert.ok(m.storage.used_bytes > mp4.length, `storage counts the takes, cut and 
 assert.equal(m.storage.quota_bytes, 50 * 1024 ** 3);
 const [{ n: tracked }] = await sql`select count(*)::int n from files where project_id = ${pid}`;
 log(`  ✓ ${info.duration.toFixed(1)}s ${info.width}×${info.height} MP4 with audio; charged $${priceAtReady}; ${tracked} files, ${(m.storage.used_bytes / 1e6).toFixed(1)} MB counted`);
-// One clip at a time, in story order, each started only after the one before it finished; never chained.
+// Up to four clips at once (the customer's render slots), started in story order. Never chained.
 const filmed = await sql`select s.code, t.submitted_at, t.finished_at, t.request from takes t join shots s on s.id = t.shot_id join episodes e on e.id = s.episode_id
   where t.project_id = ${pid} order by t.submitted_at`;
 const story = await sql`select s.code from shots s join episodes e on e.id = s.episode_id where s.project_id = ${pid} order by e.idx, s.idx`;
 assert.deepEqual(filmed.map((t: any) => t.code), story.map((s: any) => s.code), 'clips start in story order');
-filmed.slice(1).forEach((t: any, i: number) => assert.ok(+t.submitted_at >= +filmed[i].finished_at, `clip ${t.code} started after ${filmed[i].code} finished`));
+for (const t of filmed) {
+  const overlap = filmed.filter((x: any) => x !== t && +x.submitted_at <= +t.submitted_at && +x.finished_at > +t.submitted_at).length;
+  assert.ok(overlap <= 3, `at most 4 clips rendering at once (clip ${t.code} started with ${overlap} others running)`);
+}
+assert.ok(filmed.some((t: any, i: number) => i && +t.submitted_at < +filmed[i - 1].finished_at), 'clips render side by side, not one by one');
 assert.ok(filmed.every((t: any) => !(t.request?.refs || []).some((r: any) => r.role === 'reference_video')), 'no clip is sent the one before it');
 assert.equal(cut.srt_url, null, 'no subtitles unless a cut asks for them');
-log(`  ✓ ${filmed.length} clips filmed one by one in story order, none sent the previous clip; a plain join, no subtitles`);
+log(`  ✓ ${filmed.length} clips filmed up to 4 at a time in story order, none sent the previous clip; a plain join, no subtitles`);
 
 log('\n6. Fix one shot → rebuilt episode');
 const { shots } = await api(A, 'GET', `/v1/episodes/${d.episodes[0].id}/shots`);
@@ -463,6 +467,71 @@ assert.equal(await jobStatus(crashed.id), 'done', 'requeued and run again');
 assert.equal(await jobStatus(mine.id), 'running', 'still leased by its live worker');
 await sql`update jobs set status = 'done' where id = ${mine.id}`;
 log('  ✓ jobs of a dead worker are retried, or failed and refunded once out of attempts; live jobs keep their lease');
+
+log('\n10f. Step by step: choose the story, edit the script, check the cast, pick takes, use your own clip');
+const [credit0] = await sql`select plan_usd, balance_usd from credit_accounts where owner_id = ${A}`; // put back afterwards
+await sql`update credit_accounts set balance_usd = balance_usd + 50 where owner_id = ${A}`;
+const quote = await api(A, 'POST', '/v1/create/quote', { format: 'microdrama', total_seconds: 5400 });
+assert.equal(quote.episodes, 72, 'a 90-minute microdrama is 72 episodes: no length cap');
+assert.ok(quote.setup_fee_usd > 2, `writing a long film costs more to set up ($${quote.setup_fee_usd})`);
+let sb0 = await balance(A);
+const stepP = (await api(A, 'POST', '/v1/create', { prompt: 'A night nurse finds a letter that proves her husband is alive.', review: true })).project;
+let sd = await waitStage(A, stepP.id, 'story_review');
+assert.equal(sd.project.autopilot.writing.concepts.length, 3, 'three takes to choose from');
+sb0 = await balance(A);
+await api(A, 'POST', `/v1/projects/${stepP.id}/repitch`, { note: 'Make it a comedy.' });
+sd = await waitStage(A, stepP.id, 'story_review');
+near(await balance(A), sb0 - 0.25, 'new takes are charged');
+await api(A, 'POST', `/v1/projects/${stepP.id}/continue`, { concept: 2, note: 'Keep the hospital at night.' });
+sd = await waitStage(A, stepP.id, 'script_review');
+assert.equal(sd.project.story_bible.quality.choice.chosen, 2, 'the customer’s take was developed');
+const ep1 = (await api(A, 'GET', `/v1/episodes/${sd.episodes[0].id}`)).episode;
+assert.ok(ep1.scenes.length >= 2, 'the script comes split into scenes');
+sb0 = await balance(A);
+const rw = await api(A, 'POST', `/v1/episodes/${ep1.id}/rewrite`, { scene: 1, note: 'She should hesitate before answering.' });
+for (let i = 0; i < 100; i++) { const j = (await api(A, 'GET', `/v1/jobs/${rw.job_id}`)).job; if (j.status === 'done') break; assert.notEqual(j.status, 'failed', j.error); await new Promise((r) => setTimeout(r, 200)); }
+near(await balance(A), sb0 - 0.1, 'a scene rewrite is charged');
+const rewritten = (await api(A, 'GET', `/v1/episodes/${ep1.id}`)).episode;
+assert.notEqual(rewritten.scenes[0].text, ep1.scenes[0].text, 'scene 1 was rewritten');
+assert.equal(rewritten.scenes[1].text, ep1.scenes[1].text, 'the other scenes are untouched');
+await api(A, 'PATCH', `/v1/episodes/${ep1.id}`, { script: rewritten.script.replace(/\n*$/, '\n\nShe smiles at last.\n') });
+await api(A, 'POST', `/v1/projects/${stepP.id}/continue`, {});
+sd = await waitStage(A, stepP.id, 'cast_review');
+const castNow = (await api(A, 'GET', `/v1/projects/${stepP.id}/assets`)).assets.filter((a: any) => !a.meta?.unused);
+assert.ok(castNow.some((a: any) => a.status === 'review') && !castNow.some((a: any) => a.status === 'approved'), 'nothing is locked before the customer looks');
+const face = castNow.find((a: any) => a.kind === 'character');
+sb0 = await balance(A);
+await api(A, 'POST', `/v1/assets/${face.id}/generate`, { note: 'older, grey hair' });
+for (let i = 0; i < 100 && (await api(A, 'GET', `/v1/assets/${face.id}`)).asset.status !== 'review'; i++) await new Promise((r) => setTimeout(r, 200));
+near(await balance(A), sb0 - 0.05, 'a new picture is charged');
+await api(A, 'POST', `/v1/projects/${stepP.id}/continue`, {});
+sd = await waitStage(A, stepP.id, 'ready');
+assert.ok((await api(A, 'GET', `/v1/projects/${stepP.id}/assets`)).assets.filter((a: any) => !a.meta?.unused && ['character', 'location'].includes(a.kind)).every((a: any) => a.status === 'approved'), 'cast locked afterPick Continue');
+await api(A, 'POST', `/v1/projects/${stepP.id}/produce`, {});
+sd = await waitStage(A, stepP.id, 'done');
+const stepShots = (await api(A, 'GET', `/v1/episodes/${sd.episodes[0].id}/shots`)).shots;
+const pickShot = stepShots[0];
+await api(A, 'POST', `/v1/shots/${pickShot.id}/retake`, {});
+for (let i = 0; i < 200 && (await api(A, 'GET', `/v1/episodes/${sd.episodes[0].id}/shots`)).shots[0].takes.filter((t: any) => t.status === 'succeeded').length < 2; i++) await new Promise((r) => setTimeout(r, 200));
+const first = (await api(A, 'GET', `/v1/episodes/${sd.episodes[0].id}/shots`)).shots[0].takes.find((t: any) => t.n === 1);
+await api(A, 'POST', `/v1/takes/${first.id}/approve`, { recut: true });
+sd = await waitStage(A, stepP.id, 'done');
+const afterPick = (await api(A, 'GET', `/v1/episodes/${sd.episodes[0].id}/shots`)).shots[0];
+assert.equal(afterPick.approved_take_id, first.id, 'the customer’s choice of take is used');
+const ownUrl = String(pickShot.takes[0].url);
+const own = Buffer.from(await (await fetch(ownUrl.startsWith('http') ? ownUrl : base + ownUrl)).arrayBuffer());
+const form = new FormData();
+form.append('file', new Blob([own], { type: 'video/mp4' }), 'mine.mp4');
+await fetch(`${base}/v1/shots/${stepShots[1].id}/upload`, { method: 'POST', headers: { authorization: `Bearer dev:${A}` }, body: form }).then(async (r) => assert.equal(r.status, 400, 'consent is required'));
+form.append('consent', 'true'); form.append('recut', 'true');
+const up = await fetch(`${base}/v1/shots/${stepShots[1].id}/upload`, { method: 'POST', headers: { authorization: `Bearer dev:${A}` }, body: form });
+const upj: any = await up.json();
+assert.equal(up.status, 201, JSON.stringify(upj));
+sd = await waitStage(A, stepP.id, 'done');
+const used = (await api(A, 'GET', `/v1/episodes/${sd.episodes[0].id}/shots`)).shots[1];
+assert.equal(used.approved_take_id, upj.take_id, 'the uploaded clip is used in the film');
+await sql`update credit_accounts set plan_usd = ${credit0.plan_usd}, balance_usd = ${credit0.balance_usd} where owner_id = ${A}`;
+log('  ✓ takes chosen and re-pitched (charged), a scene rewritten (charged) and edited, the cast checked and a face redone (charged), a take picked and an own clip used, the film re-edited');
 
 log('\n11. Cancel, then expiry');
 await subscription('subscription_cancelled', A, 501, 'cancelled', { ends_at: future(10) });

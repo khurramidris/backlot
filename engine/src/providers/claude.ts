@@ -31,6 +31,7 @@ export interface ClaudeCall<T = any> {
   schema?: z.ZodType<T>;     // structured output: the answer must match this shape
   effort?: Effort;           // thinking depth; defaults by model (see below)
   fast?: boolean;            // use the faster model (retake revisions)
+  bulk?: boolean;            // one of a long project's many small calls: the bulk model, for steps in CLAUDE_BULK_STEPS
   maxTokens?: number;
   images?: { mime: string; b64: string }[];
 }
@@ -86,8 +87,9 @@ const sdk = () => (client ??= new Anthropic({
   timeout: 20 * 60 * 1000,     // long creative turns; requests stream, so no proxy idle timeouts
 }));
 
-/** The model a step runs on: its CLAUDE_MODELS override, else the fast or the main model. */
-export const modelFor = (task: string, fast = false) => config.anthropic.models[task] || (fast ? config.anthropic.fastModel : config.anthropic.model);
+/** The model a step runs on: its CLAUDE_MODELS override, else the bulk (long projects), the fast or the main model. */
+export const modelFor = (task: string, fast = false, bulk = false) => config.anthropic.models[task]
+  || (bulk && config.anthropic.bulkSteps.includes(task) ? config.anthropic.bulkModel : fast ? config.anthropic.fastModel : config.anthropic.model);
 
 /** Server-side fallbacks ("default" routes by refusal category) exist on the first-party API for these models. */
 const fallbackCapable = (model: string) => /^claude-(opus-5|fable-5|sonnet-5-5)/.test(model) && config.anthropic.fallbacks;
@@ -113,14 +115,19 @@ async function logPrompt(call: ClaudeCall) {
   const { mkdir, writeFile } = await import('node:fs/promises');
   await mkdir(dir, { recursive: true });
   const n = String(++logged).padStart(3, '0');
-  await writeFile(`${dir}/${n}-${call.task}.txt`, `MODEL ${modelFor(call.task, call.fast)}\n\n=== SYSTEM\n${call.system}\n\n${call.context ? `=== CONTEXT\n${call.context}\n\n` : ''}=== PROMPT\n${call.prompt}\n`);
+  await writeFile(`${dir}/${n}-${call.task}.txt`, `MODEL ${modelFor(call.task, call.fast, call.bulk)}\n\n=== SYSTEM\n${call.system}\n\n${call.context ? `=== CONTEXT\n${call.context}\n\n` : ''}=== PROMPT\n${call.prompt}\n`);
 }
 
 export async function claudeJSON<T = any>(call: ClaudeCall<T>): Promise<ClaudeResult<T>> {
   await logPrompt(call);
-  if (config.mock) return { data: mockClaudeJSON(call.task, call.input) as T, usage: { input: 0, output: 0 }, model: 'mock' };
+  if (config.mock) {
+    const data = mockClaudeJSON(call.task, call.input) as T;
+    // ESTIMATE_COSTS=1: price a mock run as if it were real, from the prompt sizes and typical answer sizes.
+    if (process.env.ESTIMATE_COSTS === '1') return { data, usage: estimatedUsage(call, data), model: modelFor(call.task, call.fast, call.bulk) };
+    return { data, usage: { input: 0, output: 0 }, model: 'mock' };
+  }
   if (!config.anthropic.apiKey) throw new PermanentError('ANTHROPIC_API_KEY is not set', 'config');
-  const model = modelFor(call.task, call.fast);
+  const model = modelFor(call.task, call.fast, call.bulk);
   const json = call.schema ? zodOutputFormat(call.schema as any).schema : null;
   const usage: Required<ClaudeUsage> = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   // Cached: identical across every call of this step (and, for the context, every call of the project).
@@ -194,6 +201,16 @@ export async function claudeJSON<T = any>(call: ClaudeCall<T>): Promise<ClaudeRe
     r = fixed;
   }
   return { data: r.data, usage, model: msg.model || model };
+}
+
+// Thinking tokens per call at high effort, a rough average per step (an estimate until real runs are measured).
+const THINKING: Record<string, number> = { pitch: 6000, choose: 3000, bible: 8000, season: 6000, outline: 5000, scene: 3000, critique: 6000, judge: 1500, rename: 500, breakdown: 6000, direct: 4000, shots: 3000 };
+/** What a mock call would have cost for real: about 4 characters a token in, the answer's size plus thinking out. */
+function estimatedUsage(call: ClaudeCall, data: any): ClaudeUsage {
+  const system = call.system.length / 4, context = (call.context || '').length / 4, prompt = call.prompt.length / 4;
+  const answer = JSON.stringify(data ?? '').length / 4;
+  // The system prompt and the project's context are cached after the first call of a step: count them as cache reads.
+  return { input: Math.round(prompt), cacheRead: Math.round(system + context), output: Math.round(answer + (THINKING[call.task] ?? 2000)) };
 }
 
 // List prices (USD per million tokens: input, output, cache read), for spend tracking and margins. Thinking is

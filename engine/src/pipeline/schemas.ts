@@ -57,6 +57,7 @@ export const BibleSchema = z.object({
   tone: str('tone in a few words, e.g. "tense, intimate, darkly funny"'),
   theme: str('what the story is really about, as a statement'),
   dramatic_question: str('the question the audience wants answered'),
+  season_arc: list('the shape of the whole story in movements, each naming the episodes it spans and what changes in it; one line for a single film'),
   world: z.object({
     place: str('specific city or region and the exact kind of place'),
     era: str('when: year or period'),
@@ -81,7 +82,7 @@ export const BibleSchema = z.object({
       sample_lines: list('two short lines in the dialogue language that only this character would say'),
     }),
     look: str('camera-visible appearance notes that make them instantly distinct from the others: age, build, silhouette, hair, signature colour'),
-  })).describe('2 to 4 speaking characters, plus any silent recurring ones'),
+  })).describe('the speaking characters (2 to 4, or more for a long story when the brief says so), plus any silent recurring ones'),
   relationships: z.array(z.object({
     between: str('two character ids, e.g. "A & B"'),
     dynamic: str('what binds them and what pulls them apart, in one sentence'),
@@ -90,7 +91,7 @@ export const BibleSchema = z.object({
     name: str('PLACE name in capitals, exactly as scene headings will use it: a specific place in this story'),
     description: str('what the place looks like and what it says about the people in it'),
     story_function: str('why the story needs this place'),
-  })).describe('2 to 4 physical places, each reused'),
+  })).describe('the physical places (2 to 4, or more for a long story when the brief says so), each reused'),
   plants: z.array(z.object({
     id: str('P1, P2, ...'),
     setup: str('what is planted on screen early: an object, a habit, a line'),
@@ -108,6 +109,15 @@ export const BibleSchema = z.object({
   style: StyleSchema.describe("the film's look, specific to this world and tone, not a generic cinematic look"),
 });
 export type Bible = z.infer<typeof BibleSchema>;
+
+const EpisodePlan = z.object({
+  number: z.number().int(),
+  title: str('episode title'),
+  summary: str('what happens, in two or three sentences'),
+  opening: str('the first three seconds of the episode: what we see and hear'),
+  ending: str('the final image or line: a cliffhanger or hand-over, or the payoff in the final episode'),
+});
+export const SeasonSchema = z.object({ episodes: z.array(EpisodePlan).describe('the episodes asked for, in order') });
 
 export const RenameSchema = z.object({
   names: z.array(z.object({ id: str('the character id'), name: str('the new full name') })),

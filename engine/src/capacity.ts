@@ -3,7 +3,7 @@
 //   nobody rendering for RUNPOD_WARM_MINUTES   → 0 workers (no GPU bill while idle)
 //   customers active                           → at least RUNPOD_WARM_WORKERS (no multi-minute cold starts)
 //   deep queue                                 → one worker per RUNPOD_JOBS_PER_WORKER renders that can run now
-//                                                 (a project renders RENDERS_PER_PROJECT clips at a time; the rest wait)
+//                                                 (a customer renders MAX_ACTIVE_RENDERS_PER_USER clips at a time; the rest wait)
 // and always caps at RUNPOD_MAX_WORKERS, the budget ceiling.
 
 import { sql } from './db.js';
@@ -21,10 +21,14 @@ let applied: number | null = null; // last floor sent to RunPod by this process
 export async function capacityTick(): Promise<Again> {
   const rp = config.runpod;
   if (config.videoProvider !== 'runpod') return { again: 600, progress: 'video provider is not RunPod; nothing to manage' };
-  // Clips waiting their turn in a project don't need a GPU yet: each project counts for at most what it can run at once.
+  // Clips waiting their turn don't need a GPU yet: each project counts for at most what it can run at once, and each
+  // customer for at most their own render slots (MAX_ACTIVE_RENDERS_PER_USER).
   const [{ active, recent }] = await sql`select
-      (select coalesce(sum(least(n, ${config.minimax.maxConcurrentPerProject})), 0) from
-        (select count(*) n from takes where status in ('pending','submitted','running') group by project_id) per_project)::int active,
+      (select coalesce(sum(least(n, ${config.minimax.maxConcurrentPerUser})), 0) from
+        (select sum(least(n, ${config.minimax.maxConcurrentPerProject})) n from
+          (select p.owner_id, count(*) n from takes t join projects p on p.id = t.project_id
+            where t.status in ('pending','submitted','running') group by p.owner_id, t.project_id) per_project
+        group by owner_id) per_owner)::int active,
       count(*) filter (where created_at > now() - make_interval(mins => ${rp.warmMinutes}))::int recent
     from takes`;
   const want = decideWorkersMin({ active, recent, warmWorkers: rp.warmWorkers, maxWorkers: rp.maxWorkers, jobsPerWorker: rp.jobsPerWorker });

@@ -117,7 +117,7 @@ async function prepImage(data: Buffer, dir: string, name: string) {
 }
 
 /** A video as 24 fps H.264 MP4 of at most 15 s and 1280 px, plus three frames for the check. */
-async function prepVideo(data: Buffer, dir: string) {
+export async function prepVideo(data: Buffer, dir: string) {
   const raw = join(dir, 'video.in');
   await writeFile(raw, data);
   const info = await probe(raw).catch(() => null);
@@ -149,7 +149,7 @@ async function prepAudio(data: Buffer, dir: string) {
   return { file };
 }
 
-const jpeg = (data: Buffer) => ({ mime: 'image/jpeg', data });
+export const jpeg = (data: Buffer) => ({ mime: 'image/jpeg', data });
 
 // ───────── create, retake, status ─────────
 
