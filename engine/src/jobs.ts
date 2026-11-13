@@ -10,11 +10,16 @@ import { runAutopilot, autopilotFailed } from './pipeline/autopilot.js';
 import { capacityTick } from './capacity.js';
 import { sql } from './db.js';
 import { config } from './config.js';
-import { paidForProject } from './billing.js';
+import { jobKey, paidForProject, releaseCharges } from './billing.js';
+import { onJobGaveUp, onRecover } from './queue.js';
+import { repairRenders } from './pipeline/render.js';
 import { rewriteScene } from './pipeline/writer.js';
 
 export function registerJobs() {
-  register('project.breakdown', (p, ctx) => paidForProject(p.projectId, config.credits.actions.breakdown, 'breakdown', () => runBreakdown(p.projectId, ctx, { force: p.force })));
+  // A job that gives up for good returns whatever it still holds; the periodic sweep repairs renders left half done.
+  onJobGaveUp((job) => releaseCharges(job.id));
+  onRecover(() => repairRenders());
+  register('project.breakdown', (p, ctx) => paidForProject(p.projectId, config.credits.actions.breakdown, 'breakdown', () => runBreakdown(p.projectId, ctx, { force: p.force }), jobKey(ctx.job, 'breakdown')));
   register('project.breakdown:failed', async (p, ctx) => {
     await sql`update projects set status = 'imported', updated_at = now() where id = ${p.projectId} and status = 'breaking_down'`;
   });
@@ -24,7 +29,7 @@ export function registerJobs() {
   });
   register('episode.plan', async (p, ctx) => {
     const [e] = await sql`select project_id from episodes where id = ${p.episodeId}`;
-    return paidForProject(e?.project_id, config.credits.actions.plan, 'shot_plan', () => planEpisode(p.episodeId, ctx, { force: p.force }));
+    return paidForProject(e?.project_id, config.credits.actions.plan, 'shot_plan', () => planEpisode(p.episodeId, ctx, { force: p.force }), jobKey(ctx.job, 'shot_plan'));
   });
   register('take.submit', (p) => submitTake(p.takeId));
   register('take.poll', (p) => pollTake(p.takeId));
@@ -34,7 +39,7 @@ export function registerJobs() {
     if (p.note) {
       await ctx.progress('Revising the shot from the note');
       const [sh] = await sql`select project_id from shots where id = ${p.shotId}`;
-      await paidForProject(sh?.project_id, config.credits.actions.revision, 'revision', () => reviseShot(p.shotId, p.note));
+      await paidForProject(sh?.project_id, config.credits.actions.revision, 'revision', () => reviseShot(p.shotId, p.note), jobKey(ctx.job, 'revision'));
     }
     return queueRender(p.shotId, { resolution: p.resolution });
   });
@@ -45,7 +50,7 @@ export function registerJobs() {
   register('scene.rewrite', async (p, ctx) => {
     const [e] = await sql`select project_id from episodes where id = ${p.episodeId}`;
     await ctx.progress(`Rewriting scene ${p.scene}`);
-    return paidForProject(e?.project_id, config.credits.actions.scene, 'scene_rewrite', () => rewriteScene(p.episodeId, p.scene - 1, p.note));
+    return paidForProject(e?.project_id, config.credits.actions.scene, 'scene_rewrite', () => rewriteScene(p.episodeId, p.scene - 1, p.note), jobKey(ctx.job, 'scene_rewrite'));
   });
   register('project.autopilot', (p, ctx) => runAutopilot(p.projectId, ctx));
   register('project.autopilot:failed', autopilotFailed);

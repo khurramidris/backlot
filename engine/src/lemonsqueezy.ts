@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from './db.js';
 import { config } from './config.js';
 import { PermanentError } from './queue.js';
-import { credit, currentSubscription, expirePlanCredit, planOf, resetPlanCredit } from './billing.js';
+import { credit, currentSubscription, expirePlanCredit, isActiveStatus, planOf, resetPlanCredit } from './billing.js';
 
 const ls = config.lemonsqueezy;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -106,14 +106,26 @@ export async function handleLemonEvent(evt: any) {
     const id = String(data.id || '');
     const owner = await ownerFor(evt, id);
     if (!id || !owner) return { ignored: 'no owner' };
-    await sql.begin(async (tx) => {
-      await tx`insert into subscriptions (id, owner_id, customer_id, variant_id, status, renews_at, ends_at)
+    const changedAt = date(a.updated_at);
+    const applied = await sql.begin(async (tx) => {
+      // Webhooks can arrive out of order: one older than what we already have (by Lemon Squeezy's own updated_at) is ignored.
+      const [row] = await tx`insert into subscriptions (id, owner_id, customer_id, variant_id, status, renews_at, ends_at, ls_updated_at)
         values (${id}, ${owner}, ${a.customer_id != null ? String(a.customer_id) : null}, ${a.variant_id != null ? String(a.variant_id) : null},
-                ${String(a.status || 'unknown')}, ${date(a.renews_at)}, ${date(a.ends_at)})
+                ${String(a.status || 'unknown')}, ${date(a.renews_at)}, ${date(a.ends_at)}, ${changedAt})
         on conflict (id) do update set customer_id = excluded.customer_id, variant_id = excluded.variant_id, status = excluded.status,
-          renews_at = excluded.renews_at, ends_at = excluded.ends_at, updated_at = now()`;
-      if (a.status === 'expired') await expirePlanCredit(tx, owner, `ls:subscription:${id}`);
+          renews_at = excluded.renews_at, ends_at = excluded.ends_at, ls_updated_at = excluded.ls_updated_at, updated_at = now()
+        where subscriptions.ls_updated_at is null or excluded.ls_updated_at is null or excluded.ls_updated_at >= subscriptions.ls_updated_at
+        returning id`;
+      if (!row) return false;
+      // Plan credit goes only when the customer has no subscription left that still gives access (an old one expiring
+      // after they subscribed again must not take this month's credit).
+      if (a.status === 'expired') {
+        const subs = await tx`select status, ends_at from subscriptions where owner_id = ${owner} and id <> ${id}`;
+        if (!subs.some((x: any) => isActiveStatus(x.status, x.ends_at))) await expirePlanCredit(tx, owner, `ls:subscription:${id}`);
+      }
+      return true;
     });
+    if (!applied) return { subscription: id, ignored: 'older than the last event' };
     return { subscription: id, status: a.status };
   }
 

@@ -20,6 +20,9 @@ export interface ImageResult { data: Buffer; mime: string; provider: string }
 const IMG_ASPECTS = ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'];
 const nearestAspect = (a: string) => (IMG_ASPECTS.includes(a) ? a : a === '4:5' ? '3:4' : '1:1');
 
+/** Whether a provider can take a place (room, street) reference picture. MiniMax image-01 only takes a face. */
+export const placeRefsSupported = (provider: string) => provider !== 'minimax';
+
 export async function generateImage(req: ImageRequest): Promise<ImageResult> {
   if (config.mock) return { data: await mockImage(req), mime: 'image/png', provider: 'mock' };
   let provider = req.provider || config.images.provider;

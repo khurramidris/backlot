@@ -26,14 +26,22 @@ export class PermanentError extends Error {
 
 const handlers = new Map<string, Handler>();
 export function register(kind: string, h: Handler) { handlers.set(kind, h); }
+/** Runs after any job fails for good (after its own failure hook), e.g. to give back credit it still holds. */
+let gaveUp: ((job: Job) => Promise<void>) | null = null;
+export function onJobGaveUp(f: (job: Job) => Promise<void>) { gaveUp = f; }
+/** Runs with every stale-job sweep (about once a minute), e.g. to repair work that lost its job. */
+let recoverHook: (() => Promise<void>) | null = null;
+export function onRecover(f: () => Promise<void>) { recoverHook = f; }
 
-export async function enqueue(kind: string, payload: any, o: { projectId?: string | null; delaySec?: number; maxAttempts?: number; dedupeKey?: string } = {}) {
+/** Queue a job. Pass `tx` to queue it inside a transaction, so it exists exactly when the rest of that work does. */
+export async function enqueue(kind: string, payload: any, o: { projectId?: string | null; delaySec?: number; maxAttempts?: number; dedupeKey?: string; tx?: any } = {}) {
+  const db = o.tx ?? sql;
   if (o.dedupeKey) {
-    const [dup] = await sql`select id from jobs where kind = ${kind} and status in ('queued','running') and payload->>'_dedupe' = ${o.dedupeKey} limit 1`;
+    const [dup] = await db`select id from jobs where kind = ${kind} and status in ('queued','running') and payload->>'_dedupe' = ${o.dedupeKey} limit 1`;
     if (dup) return Number(dup.id);
     payload = { ...payload, _dedupe: o.dedupeKey };
   }
-  const [row] = await sql`
+  const [row] = await db`
     insert into jobs (project_id, kind, payload, max_attempts, run_after)
     values (${o.projectId ?? null}, ${kind}, ${sql.json(payload)}, ${o.maxAttempts ?? 3}, now() + make_interval(secs => ${o.delaySec ?? 0}))
     returning id`;
@@ -87,6 +95,7 @@ async function runOne(job: Job) {
     if (last) {
       const f = handlers.get(job.kind + ':failed');
       if (f) await f(job.payload, ctx).catch((x) => console.error(`[job ${job.id}] failure hook`, x));
+      if (gaveUp) await gaveUp(job).catch((x) => console.error(`[job ${job.id}] give-up hook`, x));
     }
   }
 }
@@ -110,7 +119,9 @@ export async function recoverStale() {
     console.error(`[job ${j.id} ${j.kind}] worker stopped mid-job: ${j.status === 'failed' ? 'failed' : 'requeued'}`);
     const f = j.status === 'failed' && handlers.get(j.kind + ':failed');
     if (f) await f(j.payload, { job: { ...j, id: Number(j.id) } as Job, progress: async () => {} }).catch((x) => console.error(`[job ${j.id}] failure hook`, x));
+    if (j.status === 'failed' && gaveUp) await gaveUp({ ...j, id: Number(j.id) } as Job).catch((x) => console.error(`[job ${j.id}] give-up hook`, x));
   }
+  if (recoverHook) await recoverHook().catch((x) => console.error('[worker] repair sweep', x));
 }
 
 export function startWorker(concurrency = config.workerConcurrency) {

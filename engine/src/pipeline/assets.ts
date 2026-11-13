@@ -6,11 +6,11 @@ import { sql } from '../db.js';
 import { storage } from '../storage.js';
 import { config } from '../config.js';
 import { PermanentError, enqueue, type Again, type JobCtx } from '../queue.js';
-import { generateImage, type RefImage } from '../providers/images.js';
+import { generateImage, placeRefsSupported, type RefImage } from '../providers/images.js';
 import { voiceDesign, ProviderError } from '../providers/minimax.js';
 import { mockVoice } from '../providers/mock.js';
 import { recordUsage } from '../usage.js';
-import { paid, requireCredit } from '../billing.js';
+import { jobKey, paid, requireCredit } from '../billing.js';
 import { trimAudio, probe, ffmpeg } from '../media/ffmpeg.js';
 import { moderate, refusal } from '../moderation.js';
 import { tmpdir } from 'node:os';
@@ -140,7 +140,7 @@ export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: s
   const voice = a.kind === 'voice';
   const price = o.covered ? 0 : voice ? config.credits.actions.voice : config.credits.actions.image;
   try {
-    return await paid(p.owner_id, price, voice ? 'voice_gen' : 'image_gen', assetId, () => produce());
+    return await paid(p.owner_id, price, voice ? 'voice_gen' : 'image_gen', assetId, () => produce(), jobKey(ctx?.job, voice ? 'voice_gen' : 'image_gen'));
   } catch (e: any) {
     const permanent = e instanceof PermanentError || (e instanceof ProviderError && !e.retryable);
     if (permanent) {
@@ -167,12 +167,15 @@ export async function generateAsset(assetId: string, ctx?: JobCtx, o: { note?: s
       refs.push({ mime: 'image/png', data: await storage.get(a.meta.likeness_key), role: 'identity' });
     }
     const img = await generateImage({ prompt, aspect: aspectFor(a.kind, p.aspect), refs, label: [a.name, a.kind, a.key] });
+    // MiniMax image-01 only locks people: without a Gemini or OpenAI key a variant's room picture can't be passed on,
+    // so the new picture matches its parent by description only. Say so on the asset instead of hiding it.
+    const droppedPlace = refs.some((r) => r.role === 'place') && !placeRefsSupported(img.provider);
     const ext = img.mime === 'image/jpeg' ? 'jpg' : 'png';
     const key = `projects/${a.project_id}/assets/${a.id}/${Date.now()}.${ext}`;
     await storage.put(key, img.data, img.mime);
     const history = a.file_key ? [...(a.history || []), { file_key: a.file_key, at: new Date().toISOString(), note: o.note || null }].slice(-12) : a.history || [];
     await sql`update assets set status = 'review', file_key = ${key}, mime = ${img.mime}, prompt = ${prompt}, history = ${sql.json(history)},
-      meta = meta || ${sql.json({ provider: img.provider, ...(parent ? { parent_file: parent.file_key } : {}), ...(a.meta?.default_wardrobe ? { default_wardrobe: a.meta.default_wardrobe } : {}) })}, updated_at = now() where id = ${assetId}`;
+      meta = (meta - 'place_ref_missing' - 'stale_parent') || ${sql.json({ provider: img.provider, ...(parent ? { parent_file: parent.file_key } : {}), ...(a.meta?.default_wardrobe ? { default_wardrobe: a.meta.default_wardrobe } : {}), ...(droppedPlace ? { place_ref_missing: true } : {}) })}, updated_at = now() where id = ${assetId}`;
     await recordUsage({ ownerId: p.owner_id, projectId: p.id, kind: 'image', units: 1, cost: img.provider === 'mock' ? 0 : config.pricing.imageEach, ref: assetId });
     return { file_key: key };
   }
@@ -215,7 +218,7 @@ export async function queueAllAssets(projectId: string, o: { kinds?: string[]; c
 }
 
 export async function approveAsset(assetId: string, o: { covered?: boolean } = {}) {
-  const [a] = await sql`update assets set status = 'approved', approved_at = now(), updated_at = now()
+  const [a] = await sql`update assets set status = 'approved', approved_at = now(), updated_at = now(), meta = meta - 'stale_parent'
     where id = ${assetId} and file_key is not null returning *`;
   if (!a) throw new PermanentError('Nothing to approve yet: generate or upload the asset first.', 'bad_state');
   // Children generated from an older parent image are now out of date.
@@ -223,6 +226,13 @@ export async function approveAsset(assetId: string, o: { covered?: boolean } = {
     const stale = await sql`update assets set status = 'planned' where parent_id = ${a.id} and status in ('review','failed') and kind <> 'voice'
       and file_key is not null and (meta->>'parent_file') is distinct from ${a.file_key} returning id`;
     for (const s of stale) await enqueue('asset.generate', { assetId: s.id, covered: !!o.covered }, { projectId: a.project_id, dedupeKey: `asset:${s.id}` });
+    // An approved look or variant made from the old picture no longer matches it. Covered work (autopilot) redoes it for
+    // free; otherwise it goes back to review, marked out of date, so it isn't sent to the video model until the customer
+    // approves it again or pays to redo it.
+    const outdated = await sql`update assets set ${o.covered ? sql`status = 'planned'` : sql`status = 'review', meta = meta || ${sql.json({ stale_parent: true })}`}, updated_at = now()
+      where parent_id = ${a.id} and status = 'approved' and kind <> 'voice' and file_key is not null
+        and (meta->>'parent_file') is distinct from ${a.file_key} returning id`;
+    if (o.covered) for (const s of outdated) await enqueue('asset.generate', { assetId: s.id, covered: true }, { projectId: a.project_id, dedupeKey: `asset:${s.id}` });
   }
   return a;
 }

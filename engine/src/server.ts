@@ -34,6 +34,21 @@ export const app = new Hono<Env>();
 const here = dirname(fileURLToPath(import.meta.url));
 const DEV_USER = '11111111-2222-3333-4444-555555555555';
 
+/**
+ * A request made on this computer: addressed to a loopback name and not passed on by Cloudflare (a quick tunnel keeps
+ * the public host name and adds cf-* headers, so a request through it never looks local).
+ */
+export function isLocalRequest(c: Context) {
+  const host = (c.req.header('host') || '').toLowerCase().replace(/:\d+$/, '');
+  if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(host)) return false;
+  return !c.req.header('cf-connecting-ip') && !c.req.header('cf-ray') && !c.req.header('x-forwarded-host');
+}
+/** What the outside world may reach on a development engine: signed file links, the health check, the signed webhook. */
+export const remoteAllowed = (method: string, path: string) =>
+  (path === '/health' && method === 'GET')
+  || (path.startsWith('/files/') && ['GET', 'HEAD', 'PUT'].includes(method))
+  || (path === '/webhooks/lemonsqueezy' && method === 'POST');
+
 const tooBig = (c: Context) => c.json({ error: { code: 'too_large', message: 'Request body is too large.' } }, 413);
 const jsonLimit = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooBig });
 const fileLimit = bodyLimit({ maxSize: 30 * 1024 * 1024, onError: tooBig });
@@ -48,6 +63,15 @@ app.onError((e: any, c) => {
   const status = e.status || (e instanceof PermanentError ? (e.code === 'not_found' ? 404 : e.code === 'conflict' || e.code === 'not_approved' || e.code === 'bad_state' ? 409 : ['insufficient_credit', 'subscription_required', 'storage_full'].includes(e.code) ? 402 : e.code === 'config' ? 503 : 400) : e.name === 'ZodError' ? 400 : 500);
   if (status >= 500) { console.error('[api]', e); reportError(e, { where: 'api', path: c.req.path, method: c.req.method }); }
   return c.json({ error: { code: e.code || (status === 400 ? 'bad_request' : 'server_error'), message: e.name === 'ZodError' ? 'Invalid request: ' + (e.issues || []).map((i: any) => `${i.path.join('.')} ${i.message}`).join('; ') : e.message, ...(e.missing ? { missing: e.missing } : {}) } }, status);
+});
+
+// Development sign-in (ALLOW_DEV_TOKENS: the desktop app, a laptop run) trusts anyone who asks. Such an engine is often
+// reachable from the internet through a tunnel so RunPod or MiniMax can fetch files, and a tunnel forwards every path.
+// So only this computer gets the app and the API; a request from anywhere else reaches the signed file links, the
+// health check and the signed payment webhook, nothing more.
+app.use('*', async (c, next) => {
+  if (!config.auth.allowDevTokens || isLocalRequest(c) || remoteAllowed(c.req.method, c.req.path)) return next();
+  return c.json({ error: { code: 'local_only', message: 'This studio only answers on the computer it runs on.' } }, 403);
 });
 
 app.get('/health', async (c) => { await sql`select 1`; return c.json({ ok: true, mock: config.mock }); });
@@ -125,6 +149,9 @@ async function own(c: Context<Env>, table: 'episodes' | 'assets' | 'shots' | 'ta
   const rows = await sql`select x.* from ${sql(table)} x join projects p on p.id = x.project_id where x.id = ${id} and p.owner_id = ${c.get('uid')}`;
   if (!rows[0]) throw nf(table.slice(0, -1)); return rows[0] as any;
 }
+/** Whether a scene rewrite is waiting or running for this project (the script is about to change). */
+const rewriting = async (projectId: string) =>
+  (await sql`select 1 from jobs where project_id = ${projectId} and kind = 'scene.rewrite' and status in ('queued','running') limit 1`).length > 0;
 const body = async (c: Context) => { try { return await c.req.json(); } catch { return {}; } };
 const UUID = /^[0-9a-f-]{36}$/i;
 /** Optional render resolution from a request body; only what the video provider renders is accepted. */
@@ -265,6 +292,7 @@ v1.post('/projects/:id/continue', async (c) => {
     await sql`update projects set stage = 'writing', stage_error = null, autopilot = autopilot || ${sql.json({ writing: { ...w, choice, picked: true } })}, updated_at = now()
       where id = ${p.id} and stage = 'story_review'`;
   } else if (p.stage === 'script_review') {
+    if (await rewriting(p.id)) throw new PermanentError('A scene is still being rewritten. Continue once it is done, so the shots follow the script you approved.', 'bad_state');
     await sql`update projects set stage = 'breakdown', stage_error = null, updated_at = now() where id = ${p.id} and stage = 'script_review'`;
   } else if (p.stage === 'cast_review') {
     const [busy] = await sql`select id from jobs where project_id = ${p.id} and kind = 'asset.generate' and status in ('queued','running') limit 1`;
@@ -348,6 +376,7 @@ v1.post('/projects/:id/breakdown', async (c) => {
   const p = await ownProject(c, c.req.param('id'));
   await requirePlan(c.get('uid'));
   await requireCredit(c.get('uid'), config.credits.actions.breakdown);
+  if (await rewriting(p.id)) throw new PermanentError('A scene is still being rewritten. Run the breakdown once it is done.', 'bad_state');
   const b = await body(c);
   return c.json({ job_id: await enqueue('project.breakdown', { projectId: p.id, force: !!b.force }, { projectId: p.id, maxAttempts: 2, dedupeKey: `bd:${p.id}` }) }, 202);
 });
@@ -474,13 +503,16 @@ v1.post('/episodes/:id/rewrite', async (c) => {
 v1.patch('/episodes/:id', async (c) => {
   const e = await own(c, 'episodes', c.req.param('id'));
   const b = await body(c);
-  const [r] = await sql`update episodes set title = ${b.title ?? e.title}, script = ${b.script ?? e.script}, updated_at = now() where id = ${e.id} returning *`;
+  if (b.script !== undefined && await rewriting(e.project_id)) throw new PermanentError('A scene is being rewritten right now. Edit the script once it is done, so neither change is lost.', 'bad_state');
+  const [r] = await sql`update episodes set title = ${b.title ?? e.title}, script = ${b.script ?? e.script},
+    script_version = script_version + ${b.script !== undefined ? 1 : 0}, updated_at = now() where id = ${e.id} returning *`;
   return c.json({ episode: r, note: b.script ? 'Script changed: run the breakdown again, then re-plan this episode.' : undefined });
 });
 v1.post('/episodes/:id/plan', async (c) => {
   const e = await own(c, 'episodes', c.req.param('id'));
   await requirePlan(c.get('uid'));
   await requireCredit(c.get('uid'), config.credits.actions.plan);
+  if (await rewriting(e.project_id)) throw new PermanentError('A scene is still being rewritten. Plan the shots once it is done.', 'bad_state');
   const b = await body(c);
   return c.json({ job_id: await enqueue('episode.plan', { episodeId: e.id, force: !!b.force }, { projectId: e.project_id, maxAttempts: 2, dedupeKey: `plan:${e.id}` }) }, 202);
 });
