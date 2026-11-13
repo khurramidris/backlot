@@ -494,8 +494,23 @@ export async function rewriteScene(episodeId: string, k: number, note: string) {
   const els = await draftScene(room, e, card, { seed: `${p.id}:${e}:${k}:${Date.now()}`, current: parts.scenes[k], notes: [{ problem: `The customer asks: ${note}`, fix: '' }] });
   if (!els?.length) throw new Error('The scene could not be rewritten just now.');
   const heading = parts.scenes[k].split('\n')[0].trim();
-  parts.scenes[k] = sceneFountain(heading, els).trim();
-  const [r] = await sql`update episodes set script = ${joinScenes(parts)}, updated_at = now() where id = ${ep.id} returning id`;
+  const before = parts.scenes[k];
+  const rewritten = sceneFountain(heading, els).trim();
+  // The script may have changed while this scene was being written (another scene's rewrite, an edit). Write only onto
+  // the version this rewrite read; if it moved on, put the new scene into the latest script as long as this scene
+  // itself wasn't changed in the meantime. Otherwise stop (and the customer is refunded) instead of losing an edit.
+  let r: any = null;
+  for (let tries = 0; tries < 3 && !r; tries++) {
+    const [cur] = await sql`select script, script_version from episodes where id = ${ep.id}`;
+    const now = splitScenes(cur.script);
+    if (now.scenes.length !== parts.scenes.length || now.scenes[k] !== before) {
+      throw new PermanentError(`Scene ${k + 1} was changed while it was being rewritten, so this rewrite was not applied. Ask again on the current version.`, 'conflict');
+    }
+    now.scenes[k] = rewritten;
+    [r] = await sql`update episodes set script = ${joinScenes(now)}, script_version = script_version + 1, updated_at = now()
+      where id = ${ep.id} and script_version = ${cur.script_version} returning id`;
+  }
+  if (!r) throw new Error('The script kept changing while the scene was being saved.');
   await sql`update projects set updated_at = now() where id = ${p.id}`;
   return { episode_id: r.id, scene: k + 1 };
 }

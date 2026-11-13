@@ -244,7 +244,7 @@ export type Asset = {
   parent_id: string | null;
   error?: string | null;
   history_count?: number;
-  meta: { unused?: boolean; source?: string };
+  meta: { unused?: boolean; source?: string; stale_parent?: boolean; place_ref_missing?: boolean };
 };
 
 export type Episode = {

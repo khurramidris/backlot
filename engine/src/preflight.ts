@@ -124,6 +124,12 @@ export async function preflight(): Promise<Check[]> {
       return ['ok', 'Key accepted. Make sure the MiniMax account has balance: each image and voice is billed.'];
     });
   }
+  if (config.images.provider === 'minimax') {
+    add('Images and voices (MiniMax)', 'Same place, new look', config.images.geminiKey || config.images.openaiKey ? 'ok' : 'warn',
+      config.images.geminiKey || config.images.openaiKey
+        ? 'Set variants (the same room at night, after the fire) are drawn from the room’s picture with Gemini or OpenAI.'
+        : 'MiniMax images can copy a face but not a room. Without GEMINI_API_KEY or OPENAI_API_KEY, “the same room at night” is drawn from its description only and may not look like the same room. Such pictures are marked on the cast page.');
+  }
 
   // ── Video ──
   if (config.videoProvider === 'runpod') {
