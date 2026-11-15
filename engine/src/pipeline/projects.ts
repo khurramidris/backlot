@@ -1,6 +1,6 @@
 // Things every kind of project (film, clip, app or API) does the same way.
 
-import { sql } from '../db.js';
+import { sql, retryBusy } from '../db.js';
 import { storage } from '../storage.js';
 import { settleTake } from '../billing.js';
 import { mm } from './render.js';
@@ -13,7 +13,8 @@ import { mm } from './render.js';
 export async function deleteProject(projectId: string) {
   await stopWork(projectId);
   await storage.delProject(projectId);
-  await sql`delete from projects where id = ${projectId}`;
+  // A film being deleted while its renders are still being queued can deadlock with them: try again until it's gone.
+  await retryBusy(() => sql`delete from projects where id = ${projectId}`);
 }
 
 /** Give back credit held for renders that will never be delivered, and stop paying for the ones still running. */

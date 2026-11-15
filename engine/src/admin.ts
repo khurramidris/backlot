@@ -7,6 +7,7 @@ import { sql, begin, plain } from './db.js';
 import { PermanentError } from './queue.js';
 import { balances, credit, isActiveStatus, planOf, storageUsed, storageQuotaBytes } from './billing.js';
 import { businessReport } from './business.js';
+import { setSuspended } from './api/access.js';
 
 type Env = { Variables: { uid: string; email: string | null } };
 export const admin = new Hono<Env>();
@@ -78,10 +79,27 @@ admin.get('/customers/:id', async (c) => {
           + (select coalesce(sum(hold_usd) filter (where status <> 'failed'), 0) from takes t where t.project_id = p.id))::float charged_usd
       from projects p where p.owner_id = ${id} order by p.updated_at desc limit 50`,
   ]);
+  const [api] = await sql`select a.suspended_at, a.suspended_reason,
+      (select count(*)::int from api_keys k where k.owner_id = ${id} and k.revoked_at is null) active_keys,
+      (select count(*)::int from api_requests r where r.owner_id = ${id} and r.created_at > now() - interval '30 days') requests_30d,
+      (select count(*)::int from api_refusals x where x.owner_id = ${id} and x.created_at > now() - interval '24 hours') refusals_24h,
+      (select coalesce(-sum(delta_usd), 0)::float from credit_events e where e.owner_id = ${id} and e.api_key_id is not null and e.created_at > now() - interval '30 days') spend_30d
+    from (select 1) one left join api_accounts a on a.owner_id = ${id}`;
   return c.json(plain({
     customer: a, credits, plan, storage: { used_bytes: used, quota_bytes: storageQuotaBytes() },
     subscriptions, credit_events: events, payments, projects,
+    api: { suspended: !!api.suspended_at, suspended_reason: api.suspended_reason, suspended_at: api.suspended_at, active_keys: api.active_keys,
+      requests_30d: api.requests_30d, refusals_24h: api.refusals_24h, spend_30d_usd: Math.round(api.spend_30d * 100) / 100 },
   }));
+});
+
+/** Suspend or lift a customer's API access (it is suspended automatically after repeated content refusals). */
+admin.post('/customers/:id/api', async (c) => {
+  const a = await customer(c.req.param('id'));
+  const b = await c.req.json().catch(() => ({}));
+  if (typeof b.suspended !== 'boolean') throw new PermanentError('Send suspended: true or false.', 'bad_input');
+  await setSuspended(a.owner_id, b.suspended, String(b.reason || 'suspended by an admin').slice(0, 200));
+  return c.json({ suspended: b.suspended });
 });
 
 /** Give credit (goodwill, a refund done by hand) or take it back. Top-up credit only: it never expires. */

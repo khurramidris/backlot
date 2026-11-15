@@ -16,6 +16,7 @@ import { onJobGaveUp, onRecover } from './queue.js';
 import { repairRenders } from './pipeline/render.js';
 import { rewriteScene } from './pipeline/writer.js';
 import { breakdownFee, planFee, projectScenes, episodeScenes } from './pipeline/limits.js';
+import { registerApi } from './api/register.js';
 
 /**
  * Fairness between customers inside a lane: at most `max` of these jobs run at once for one customer. A job over that
@@ -34,6 +35,7 @@ const fair = (kinds: string[], max: number, h: Handler): Handler => async (paylo
 const LLM = ['project.autopilot', 'project.breakdown', 'episode.plan', 'scene.rewrite', 'shot.retake'];
 
 export function registerJobs() {
+  registerApi(); // webhooks, automatic approval and retention for the public API (needed wherever jobs run)
   // A job that gives up for good returns whatever it still holds; the periodic sweep repairs renders left half done.
   onJobGaveUp((job) => releaseCharges(job.id));
   onRecover(() => repairRenders());

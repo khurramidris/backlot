@@ -34,6 +34,8 @@ import { endpointHealth } from './providers/runpod.js';
 import { capacitySnapshot, runpodInUse } from './capacity.js';
 import { preflight } from './preflight.js';
 import { admin } from './admin.js';
+import { api as publicApi } from './api/routes.js';
+import { developers } from './api/manage.js';
 import { limit } from './ratelimit.js';
 import { reportError } from './monitoring.js';
 
@@ -91,11 +93,16 @@ app.use('*', async (c, next) => {
   receiving++;
   try { await next(); } finally { receiving--; }
 });
+const apiMediaLimit = bodyLimit({ maxSize: 40 * 1024 * 1024, onError: tooBig }); // an API video's media sent as data URIs
 app.use('*', (c, next) => (c.req.method === 'PUT' && c.req.path.startsWith('/files/') ? uploadLimit
+  : c.req.method === 'POST' && c.req.path === '/api/v1/videos' ? apiMediaLimit
   : /multipart\/form-data/i.test(c.req.header('content-type') || '') ? (/^\/v1\/(clips|shots\/[^/]+\/upload)$/.test(c.req.path) ? clipLimit : fileLimit) : jsonLimit)(c, next));
 
-app.use('*', cors({ origin: config.corsOrigins.includes('*') ? '*' : config.corsOrigins, allowHeaders: ['authorization', 'content-type', 'x-engine-key', 'x-user-id', 'idempotency-key'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  exposeHeaders: ['x-request-id', 'retry-after', 'x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset'] }));
+const appCors = cors({ origin: config.corsOrigins.includes('*') ? '*' : config.corsOrigins, allowHeaders: ['authorization', 'content-type', 'x-engine-key', 'x-user-id', 'idempotency-key'], allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  exposeHeaders: ['x-request-id', 'retry-after', 'x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset'] });
+const apiCors = cors({ origin: '*', allowHeaders: ['authorization', 'content-type', 'idempotency-key'], allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  exposeHeaders: ['x-request-id', 'retry-after', 'x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'idempotent-replayed'], maxAge: 600 });
+app.use('*', (c, next) => (c.req.path.startsWith('/api/') ? apiCors(c, next) : appCors(c, next)));
 
 // Browser protections on every response: no framing by other sites (clickjacking), no content-type guessing, no
 // referrer leaks, HTTPS only once it has been seen, and a content policy for the pages we serve ourselves.
@@ -817,7 +824,9 @@ v1.get('/projects/:id/events', async (c) => {
 });
 
 v1.route('/admin', admin);
+v1.route('/developers', developers); // the Developers page: keys, webhook secret, usage
 app.route('/v1', v1);
+app.route('/api/v1', publicApi); // the public developer API (off until API_ENABLED=1)
 
 // ───────── the web app (web/dist): static files, and index.html for every app route ─────────
 const WEB_MIME: Record<string, string> = {
@@ -827,7 +836,7 @@ const WEB_MIME: Record<string, string> = {
 const webDir = resolve(config.webDir);
 app.get('*', async (c) => {
   const path = decodeURIComponent(c.req.path);
-  if (/^\/(v1|files|webhooks|health|console)(\/|$)/.test(path)) return c.json({ error: { code: 'not_found', message: 'not found' } }, 404);
+  if (/^\/(v1|api|files|webhooks|health|console)(\/|$)/.test(path)) return c.json({ error: { code: 'not_found', message: 'not found' } }, 404);
   const file = resolve(webDir, '.' + path);
   if (path !== '/' && file.startsWith(webDir + sep) && (await stat(file).then((s) => s.isFile(), () => false))) {
     return new Response(new Uint8Array(await readFile(file)), { headers: {

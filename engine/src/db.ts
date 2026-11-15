@@ -40,6 +40,19 @@ export function begin<T>(fn: (tx: any) => Promise<T>, o: { lockMs?: number } = {
   }) as Promise<T>;
 }
 
+/**
+ * Run something that may lose a race with other work on the same rows: a deadlock (Postgres picks one side and aborts
+ * it) or a lock wait that timed out. Those are tried again, a few times, after a short pause.
+ */
+export async function retryBusy<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await fn(); } catch (e: any) {
+      if (i >= attempts || !['40P01', '55P03', '40001'].includes(e?.code)) throw e;
+      await new Promise((r) => setTimeout(r, 100 * i + Math.random() * 200));
+    }
+  }
+}
+
 /** Resolves false when the promise takes longer than `ms` (the promise itself keeps running). */
 const within = <T>(p: Promise<T>, ms: number) => Promise.race([p.then(() => true, () => 'error' as const), new Promise<false>((r) => setTimeout(() => r(false), ms).unref())]);
 

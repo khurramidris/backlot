@@ -97,6 +97,15 @@ export async function businessReport(daysIn: number) {
   const gpu = runpodInUse() ? await endpointHealth().catch((e: any) => ({ error: String(e.message || e) })) : null;
   const capacity = await capacitySnapshot();
 
+  // The public API: who uses it, how much, and how much it earns.
+  const [apiUse] = await sql`select (select count(distinct owner_id)::int from api_keys where revoked_at is null) developers,
+      (select count(*)::int from api_accounts where suspended_at is not null) suspended,
+      (select count(*)::int from api_requests where created_at > ${since}) requests,
+      (select count(*)::int from api_requests where created_at > ${since} and status >= 500) server_errors,
+      (select count(*) filter (where mode = 'clip')::int from projects where origin = 'api' and created_at > ${since}) videos,
+      (select count(*) filter (where mode = 'vibe')::int from projects where origin = 'api' and created_at > ${since}) films,
+      (select coalesce(-sum(delta_usd), 0)::float from credit_events where api_key_id is not null and created_at > ${since}) spend_usd,
+      (select count(*)::int from webhook_deliveries where status = 'failed' and created_at > ${since}) webhooks_failed`;
   const revenue = r2(pay.usd);
   const net = r2(revenue - fees);
   const profit = r2(net - providerUsd - fixedUsd);
@@ -126,6 +135,7 @@ export async function businessReport(daysIn: number) {
     },
     daily: daily.map((d: any) => ({ ...d, revenue_usd: r2(d.revenue_usd), cost_usd: r2(d.cost_usd) })),
     problems: { render_errors: errors, job_errors: jobErrors, failed_projects: failures },
+    api: { enabled: config.api.enabled, ...apiUse, spend_usd: r2(apiUse.spend_usd) },
     top_customers: top.map((t: any) => ({ ...t, cost_usd: r2(t.cost_usd), paid_usd: r2(t.paid_usd) })),
     health: {
       video_provider: config.videoProvider, renders_waiting: queue.waiting, renders_running: queue.rendering,

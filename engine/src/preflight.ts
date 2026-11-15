@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { config } from './config.js';
 import { sql } from './db.js';
 import { storage } from './storage.js';
+import { priceGuard } from './api/access.js';
 
 export type Check = { area: string; name: string; status: 'ok' | 'warn' | 'fail'; detail: string };
 
@@ -142,6 +143,17 @@ export async function preflight(): Promise<Check[]> {
       return ['warn', `Endpoint reachable (workers: ${w.idle ?? 0} idle, ${w.running ?? 0} running, ${w.initializing ?? 0} starting; jobs waiting: ${j.inQueue ?? 0}). Only a real test render proves the model and the handler work: make one short film.`];
     });
   } else add('Video', 'Provider', 'ok', 'MiniMax hosted video (MINIMAX_API_KEY above).');
+
+  // ── Public API ──
+  if (!config.api.enabled) add('Public API', 'Switched on', 'ok', 'Off (API_ENABLED is not set). Developers can’t use /api/v1 yet; turn it on once video costs are confirmed.');
+  else {
+    add('Public API', 'Switched on', 'ok', `On at ${config.publicBaseUrl || '(PUBLIC_BASE_URL)'}/api/v1. Videos are kept ${config.api.retentionDays} days.`);
+    await run('Public API', 'Price above cost', async () => {
+      const g = await priceGuard(true);
+      if (!g.ok) return ['fail', `Video costs $${g.cost_per_second}/s (${g.source}) but sells for $${g.sell_per_second}/s: the API refuses new videos until SELL_PER_SECOND_768P is above cost.`];
+      return [g.cost_per_second == null ? 'warn' : 'ok', g.cost_per_second == null ? `Selling at $${g.sell_per_second}/s; cost ${g.source}.` : `Selling at $${g.sell_per_second}/s, costing $${g.cost_per_second}/s (${g.source}).`];
+    });
+  }
 
   // ── Payments ──
   if (local) return out;
