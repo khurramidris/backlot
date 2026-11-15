@@ -390,6 +390,8 @@ step('A film that waits for approval, then films when approved');
   const f = await finished(key, 'films', r.json.id, ['awaiting_approval', 'failed']);
   assert.equal(f.status, 'awaiting_approval'); assert.equal(f.approval.required, true); assert.ok(f.cost.filming_usd > 0);
   await until('film.awaiting_approval', async () => hooks.some((h) => h.event.data?.id === r.json.id && h.event.type === 'film.awaiting_approval'));
+  const early = await call(key, 'POST', `/films/${r.json.id}/retry`);
+  assert.equal(early.status, 409, 'only a failed film can be retried'); assert.equal(early.json.error.code, 'bad_state');
   const before = await balance(D);
   const go = await call(key, 'POST', `/films/${r.json.id}/approve`);
   assert.equal(go.status, 200); assert.ok(['filming', 'editing', 'succeeded'].includes(go.json.status), go.json.status);

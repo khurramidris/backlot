@@ -666,7 +666,7 @@ v1.post('/shots/:id/retake', async (c) => {
   let out: any;
   try {
     out = b.prompt ? await queueRender(s.id, { resolution })
-      : { job_id: await enqueue('shot.retake', { shotId: s.id, note, resolution }, { projectId: s.project_id, maxAttempts: 2 }) };
+      : { job_id: await enqueue('shot.retake', { shotId: s.id, note, resolution }, { projectId: s.project_id, maxAttempts: 2, dedupeKey: `retake:${s.id}` }) }; // a double-click is one retake
   } catch (e) { // nothing was started: put the shot back as it was
     await sql`update shots set status = ${s.status}, approved_take_id = ${s.approved_take_id} where id = ${s.id}`;
     throw e;
