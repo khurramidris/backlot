@@ -6,6 +6,7 @@ import { sql } from './db.js';
 import { config } from './config.js';
 import { isActiveStatus } from './billing.js';
 import { endpointHealth } from './providers/runpod.js';
+import { capacitySnapshot, runpodInUse } from './capacity.js';
 
 const DAY_MS = 86_400_000;
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -93,7 +94,8 @@ export async function businessReport(daysIn: number) {
       coalesce(extract(epoch from now() - min(run_after) filter (where status = 'queued' and run_after <= now())) / 60, 0)::float oldest_ready_minutes
     from jobs`;
   const [files] = await sql`select coalesce(sum(bytes), 0)::bigint bytes, count(*)::int n from files`;
-  const gpu = config.videoProvider === 'runpod' ? await endpointHealth().catch((e: any) => ({ error: String(e.message || e) })) : null;
+  const gpu = runpodInUse() ? await endpointHealth().catch((e: any) => ({ error: String(e.message || e) })) : null;
+  const capacity = await capacitySnapshot();
 
   const revenue = r2(pay.usd);
   const net = r2(revenue - fees);
@@ -129,7 +131,7 @@ export async function businessReport(daysIn: number) {
       video_provider: config.videoProvider, renders_waiting: queue.waiting, renders_running: queue.rendering,
       oldest_render_minutes: Math.round(queue.oldest_minutes), jobs_ready: jobs.ready, jobs_running: jobs.running,
       jobs_failed_24h: jobs.failed_24h, oldest_job_wait_minutes: Math.round(jobs.oldest_ready_minutes),
-      storage_bytes: Number(files.bytes), stored_files: files.n, gpu,
+      storage_bytes: Number(files.bytes), stored_files: files.n, gpu, capacity,
     },
   };
 }

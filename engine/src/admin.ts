@@ -3,7 +3,7 @@
 
 import { Hono } from 'hono';
 import { config } from './config.js';
-import { sql, plain } from './db.js';
+import { sql, begin, plain } from './db.js';
 import { PermanentError } from './queue.js';
 import { balances, credit, isActiveStatus, planOf, storageUsed, storageQuotaBytes } from './billing.js';
 import { businessReport } from './business.js';
@@ -93,7 +93,7 @@ admin.post('/customers/:id/credit', async (c) => {
   if (!usd || !Number.isFinite(usd) || Math.abs(usd) > 1000) throw new PermanentError('Enter an amount between -1000 and 1000 dollars.', 'bad_input');
   if (!note) throw new PermanentError('Add a short note saying why (it goes in the customer’s credit history).', 'bad_input');
   const ref = `admin:${c.get('uid')}: ${note}`.slice(0, 250);
-  await sql.begin(async (tx) => {
+  await begin(async (tx) => {
     if (usd > 0) return credit(tx, a.owner_id, usd, 'admin_grant', ref);
     const [row] = await tx`update credit_accounts set balance_usd = greatest(balance_usd - ${-usd}, 0), updated_at = now()
       where owner_id = ${a.owner_id} returning balance_usd`;

@@ -202,15 +202,23 @@ export function compileShot(i: CompileInput): Compiled {
 }
 
 /** Final validation of the request body against MiniMax's documented rules. Throws on violations. */
+/** What each H3 model renders (MiniMax's reference, November 2026): its resolutions and its shortest clip. */
+export const H3_MODELS: Record<string, { resolutions: string[]; minSec: number }> = {
+  'MiniMax-H3': { resolutions: ['768P', '2K'], minSec: 4 },
+  'MiniMax-H3-Highspeed': { resolutions: ['480P', '768P'], minSec: 4 },
+  'MiniMax-H3-Lite': { resolutions: ['480P', '768P'], minSec: 4 },
+  'MiniMax-H3-Max': { resolutions: ['480P', '768P'], minSec: 5 },
+};
+
 export function validateH3(body: any) {
   const errs: string[] = [];
-  if (!['MiniMax-H3', 'MiniMax-H3-Max'].includes(body.model)) errs.push(`unknown model ${body.model}`);
+  const model = H3_MODELS[body.model];
+  if (!model) errs.push(`unknown model ${body.model}`);
   const texts = (body.content || []).filter((c: any) => c.type === 'text');
   if (texts.length !== 1 || !texts[0].text?.trim()) errs.push('exactly one non-empty text item is required');
   if (texts[0]?.text?.length > H3.maxPromptChars) errs.push('prompt over 7000 characters');
-  if (!Number.isInteger(body.duration) || body.duration < (body.model === 'MiniMax-H3-Max' ? 5 : 4) || body.duration > 15) errs.push(`duration ${body.duration} out of range`);
-  if (body.model === 'MiniMax-H3' && !['768P', '2K'].includes(body.resolution)) errs.push(`resolution ${body.resolution} not supported by H3`);
-  if (body.model === 'MiniMax-H3-Max' && !['480P', '768P'].includes(body.resolution)) errs.push(`resolution ${body.resolution} not supported by H3-Max`);
+  if (!Number.isInteger(body.duration) || body.duration < (model?.minSec ?? 4) || body.duration > 15) errs.push(`duration ${body.duration} out of range`);
+  if (model && !model.resolutions.includes(body.resolution)) errs.push(`resolution ${body.resolution} not supported by ${body.model}`);
   if (body.ratio && !H3.ratios.includes(body.ratio)) errs.push(`ratio ${body.ratio} invalid`);
   const roles = (body.content || []).map((c: any) => c.role).filter(Boolean);
   const i2v = roles.some((r: string) => r === 'first_frame' || r === 'last_frame');

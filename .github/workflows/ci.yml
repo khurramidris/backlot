@@ -37,6 +37,8 @@ jobs:
         run: createdb runpod && DATABASE_URL=postgres://postgres@localhost:5432/runpod PORT=8803 npx tsx test/runpod.e2e.ts
       - name: Money, recovery and safety (audit 2026-11-13)
         run: createdb reliability && DATABASE_URL=postgres://postgres@localhost:5432/reliability npx tsx test/reliability.e2e.ts
+      - name: Load, hostile uploads, limits and job lanes (launch audit)
+        run: createdb scale && DATABASE_URL=postgres://postgres@localhost:5432/scale npx tsx test/scale.e2e.ts
 
   web:
     runs-on: ubuntu-latest

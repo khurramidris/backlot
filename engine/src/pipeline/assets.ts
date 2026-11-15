@@ -11,7 +11,8 @@ import { voiceDesign, ProviderError } from '../providers/minimax.js';
 import { mockVoice } from '../providers/mock.js';
 import { recordUsage } from '../usage.js';
 import { jobKey, paid, requireCredit } from '../billing.js';
-import { trimAudio, probe, ffmpeg } from '../media/ffmpeg.js';
+import { trimAudio, probe, withMediaSlot } from '../media/ffmpeg.js';
+import { prepImage, prepAudio } from './clips.js';
 import { moderate, refusal } from '../moderation.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -237,41 +238,32 @@ export async function approveAsset(assetId: string, o: { covered?: boolean } = {
   return a;
 }
 
-/** An uploaded picture goes to the video model as a reference, so it's checked like any other customer content. */
-async function checkUpload(a: any, data: Buffer, uid: string) {
-  const dir = await mkdtemp(join(tmpdir(), 'upcheck-'));
-  try {
-    const raw = join(dir, 'in'), small = join(dir, 'small.jpg');
-    await writeFile(raw, data);
-    await ffmpeg(['-i', raw, '-vf', "scale='min(1024,iw)':'min(1024,ih)':force_original_aspect_ratio=decrease", '-frames:v', '1', '-q:v', '4', small])
-      .catch(() => { throw new PermanentError('The picture couldn’t be read. Use a JPEG, PNG or WebP.', 'bad_input'); });
-    const v = await moderate({ ownerId: uid, projectId: a.project_id, text: `Reference picture uploaded for a ${a.kind}: ${a.name}`, images: [{ mime: 'image/jpeg', data: await readFile(small) }] });
-    if (!v.allowed) throw refusal(v);
-  } finally { await rm(dir, { recursive: true, force: true }); }
-}
-
-/** Store a user-supplied file as the asset (an actor photo, a real location, a recorded voice). */
+/**
+ * Store a user-supplied file as the asset (an actor photo, a real location, a recorded voice). What is stored is
+ * never the bytes the customer sent: a picture is re-encoded to a JPEG and a voice to an MP3 (see clips.ts), which
+ * proves the file is what it claims to be and drops metadata such as GPS. A picture goes to the video model as a
+ * reference, so it is content-checked like any other customer content.
+ */
 export async function uploadAsset(assetId: string, data: Buffer, mime: string, uid: string, consent: boolean) {
   const [a] = await sql`select * from assets where id = ${assetId}`;
   if (!a) throw new PermanentError('asset not found');
   const isPerson = a.kind === 'character' || a.kind === 'look' || a.kind === 'voice';
   if (isPerson && !consent) throw new PermanentError('Uploading a real person\'s face or voice needs consent=true: confirm you have that person\'s permission.', 'consent_required');
-  const okImage = /^image\/(png|jpeg|webp)$/.test(mime), okAudio = /^audio\/(mpeg|mp3|wav|x-wav)$/.test(mime);
-  if (a.kind === 'voice' ? !okAudio : !okImage) throw new PermanentError(`Unsupported file type ${mime} for a ${a.kind}.`, 'bad_input');
   let key: string;
-  if (a.kind === 'voice') {
-    const dir = await mkdtemp(join(tmpdir(), 'upvoice-'));
-    try {
-      const raw = join(dir, 'in'), out = join(dir, 'ref.mp3');
-      await writeFile(raw, data); await trimAudio(raw, out, 14);
+  const dir = await mkdtemp(join(tmpdir(), 'upasset-'));
+  try {
+    if (a.kind === 'voice') {
+      const v = await withMediaSlot(() => prepAudio(data, dir, 14, 'The voice recording'));
       key = `projects/${a.project_id}/assets/${a.id}/upload-${Date.now()}.mp3`;
-      await storage.put(key, await readFile(out), 'audio/mpeg'); mime = 'audio/mpeg';
-    } finally { await rm(dir, { recursive: true, force: true }); }
-  } else {
-    await checkUpload(a, data, uid);
-    key = `projects/${a.project_id}/assets/${a.id}/upload-${Date.now()}.${mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png'}`;
-    await storage.put(key, data, mime);
-  }
+      await storage.put(key, await readFile(v.file), 'audio/mpeg'); mime = 'audio/mpeg';
+    } else {
+      const im = await withMediaSlot(() => prepImage(data, dir, 'upload'));
+      const v = await moderate({ ownerId: uid, projectId: a.project_id, text: `Reference picture uploaded for a ${a.kind}: ${a.name}`, images: [{ mime: 'image/jpeg', data: im.small }] });
+      if (!v.allowed) throw refusal(v);
+      key = `projects/${a.project_id}/assets/${a.id}/upload-${Date.now()}.jpg`;
+      await storage.put(key, await readFile(im.file), 'image/jpeg'); mime = 'image/jpeg';
+    }
+  } finally { await rm(dir, { recursive: true, force: true }); }
   const history = a.file_key ? [...(a.history || []), { file_key: a.file_key, at: new Date().toISOString(), note: 'replaced by upload' }].slice(-12) : a.history || [];
   const meta = { ...(a.meta || {}), source: 'upload', ...(isPerson ? { consent: { confirmed: true, by: uid, at: new Date().toISOString() } } : {}) };
   const [row] = await sql`update assets set file_key = ${key}, mime = ${mime}, status = 'review', history = ${sql.json(history)}, meta = ${sql.json(meta)}, error = null, updated_at = now()

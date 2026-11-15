@@ -2,7 +2,7 @@
 // Claude directs; code guarantees the script's dialogue is all there, verbatim and once,
 // that every line has time to be spoken, and that no shot breaks H3's limits.
 
-import { sql } from '../db.js';
+import { sql, begin } from '../db.js';
 import { PermanentError, type JobCtx } from '../queue.js';
 import { claudeJSON, llmCost, llmUnits } from '../providers/claude.js';
 import { config } from '../config.js';
@@ -310,7 +310,7 @@ export async function planEpisode(episodeId: string, ctx: JobCtx, o: { force?: b
   });
 
   const chain = config.minimax.chainClips && !!p.settings?.chain_clips;
-  const total = await sql.begin(async (tx) => {
+  const total = await begin(async (tx) => {
     await tx`delete from shots where episode_id = ${episodeId}`;
     let idx = 0;
     for (const { scene, shots, warnings } of planned) {

@@ -15,7 +15,7 @@
 // the director and the shot planner.
 
 import { z } from 'zod';
-import { sql } from '../db.js';
+import { sql, begin } from '../db.js';
 import { config } from '../config.js';
 import { PermanentError, type JobCtx } from '../queue.js';
 import { claudeJSON, llmCost, llmUnits, type ClaudeCall } from '../providers/claude.js';
@@ -417,7 +417,7 @@ async function finish(r: Room, notes: string[]) {
   });
   const outline = (st.outline || []).map((cards, e) => ({ episode: e + 1, scenes: cards }));
   const quality = { issues: report.issues, episodes: report.episodes, scores: st.critique?.scores || null, doctor_notes: notes, concepts: st.concepts || [], choice: st.choice || null };
-  await sql.begin(async (tx) => {
+  await begin(async (tx) => {
     await tx`delete from episodes where project_id = ${p.id}`; // a retried write replaces, never appends
     await tx`update projects set title = ${n.title}, format = ${n.format}, aspect = ${n.aspect}, language = ${n.language}, style = ${tx.json(n.style)},
       story_bible = ${tx.json({ ...n.story_bible, logline: str(b.logline), treatment: b, outline, quality } as any)},
