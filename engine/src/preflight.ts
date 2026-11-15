@@ -59,6 +59,10 @@ export async function preflight(): Promise<Check[]> {
     https(config.lemonsqueezy.appUrl) ? config.lemonsqueezy.appUrl : 'Set APP_URL to your site address, starting with https://. Usually the same as PUBLIC_BASE_URL.');
   add('Settings', 'File storage', config.storage.driver === 's3' ? 'ok' : 'fail',
     config.storage.driver === 's3' ? `S3 bucket "${config.storage.s3Bucket}".` : 'STORAGE_DRIVER must be s3 in production: Railway wipes local files on every deploy, and customers would lose their videos.');
+  const legalMissing = (['company', 'jurisdiction', 'address', 'email'] as const).filter((k) => !config.legal[k]);
+  add('Settings', 'Company details', legalMissing.length ? 'fail' : 'ok', legalMissing.length
+    ? `The Terms, Privacy Policy and support links show placeholders. Set ${legalMissing.map((k) => ({ company: 'LEGAL_COMPANY', jurisdiction: 'LEGAL_JURISDICTION', address: 'LEGAL_ADDRESS', email: 'SUPPORT_EMAIL' })[k]).join(', ')}.`
+    : `${config.legal.company}, ${config.legal.jurisdiction}; support ${config.legal.email}.`);
   add('Settings', 'Admins', config.admins.length ? 'ok' : 'warn',
     config.admins.length ? `${config.admins.length} admin(s).` : 'Set ADMIN_USER_IDS to your user id (Account page) to see this page and the capacity page.');
 

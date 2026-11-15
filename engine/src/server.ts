@@ -191,7 +191,9 @@ app.get('/app-config.json', (c) => c.json({
   prices: { per_second_usd: config.credits.sellPerSecond['768P'], setup_fee_usd: config.credits.setupFeeUsd },
   // The public API: whether it is switched on, and what the docs page needs to show.
   api: { enabled: config.api.enabled, base_url: `${config.publicBaseUrl}/api/v1`, retention_days: config.api.retentionDays,
-    clip_seconds: [config.clips.minSeconds, config.clips.maxSeconds], film_max_seconds: config.api.filmMaxSeconds },
+    clip_seconds: [config.clips.minSeconds, config.clips.maxSeconds], film_max_seconds: config.api.filmMaxSeconds,
+    requests_per_minute: config.api.requestsPerMinute, creates_per_minute: config.api.createsPerMinute,
+    max_active: config.api.maxActive, max_active_films: config.api.maxActiveFilms },
   // Who runs the service, for the Terms, the Privacy Policy and "contact support".
   legal: config.legal,
   ...(config.auth.allowDevTokens ? { devUser: DEV_USER } : {}), // local development: sign in as a fixed user
