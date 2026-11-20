@@ -166,9 +166,10 @@ export async function live() {
       where t.status in ('pending', 'submitted', 'running') order by t.created_at limit 100`,
     sql`select kind, count(*) filter (where status = 'running')::int running, count(*) filter (where status = 'queued' and run_after <= now())::int ready,
         count(*) filter (where status = 'queued' and run_after > now())::int scheduled
-      from jobs where status in ('queued', 'running') group by kind order by kind`,
+      from jobs where status in ('queued', 'running') and kind not like 'system.%' group by kind order by kind`,
     sql`select j.id, j.kind, j.progress, j.attempts, j.max_attempts, j.locked_by, j.created_at, j.updated_at, j.project_id, p.title
-      from jobs j left join projects p on p.id = j.project_id where j.status = 'running' order by j.updated_at desc limit 30`,
+      from jobs j left join projects p on p.id = j.project_id where j.status = 'running' and j.kind not like 'system.%'
+      order by j.updated_at desc limit 30`,
     gpuHealth(),
     sql`select progress, updated_at from jobs where kind = 'system.capacity' order by id desc limit 1`,
     sql`select at, renders_waiting, renders_running, jobs_ready, jobs_running, online,
