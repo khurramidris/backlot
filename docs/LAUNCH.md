@@ -80,7 +80,8 @@ Fix these when customers actually hit them, not before.
 
 ## After launch: the weekly look
 
-Open **Admin** on the 7-day view:
+Every day, open the ops dashboard's **Overview** (docs/DEPLOY.md, "The ops dashboard"): its "Needs you" list says what
+to look at first. Once a week, open **Admin** (or the dashboard's Business page) on the 7-day view:
 - **Profit and margin:** is video cost per second well under the price? Is writing cost per film under the setup
   fee?
 - **Problems:** many failed renders points to a provider problem. Many refusals means the content check may be too

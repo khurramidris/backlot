@@ -110,6 +110,12 @@ prompt ─▶ writing ─▶ casting ─▶ planning ─▶ READY (customer appr
   revenue, costs and profit, customers, what was made, health and problems for a date range),
   `engine/src/preflight.ts` (Setup check),
   `engine/src/ratelimit.ts` (per-customer limits) and `engine/src/monitoring.ts` (Sentry, optional).
+- **Ops dashboard:** a separate, read-only service (`engine/src/ops.ts`, `node dist/ops.js`) with its own address,
+  so it stays up when the app doesn't. One report per page (`engine/src/ops/*`) for the page in `web/src/ops`; admins
+  only. The engine records what those reports need (`engine/src/telemetry.ts`, migration 009): API requests counted
+  in memory and written once a minute by route pattern, one row per customer per active day, a health snapshot
+  every minute (a `system.snapshot` job), every stage a video enters (a database trigger, so no code path misses
+  one), content-check verdicts by customer, and payment webhook deliveries. Never customer content.
 
 ## Invariants worth keeping
 

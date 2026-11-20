@@ -7,7 +7,7 @@ The founder works with Claude as CTO and the whole engineering team. Ship-orient
 ## Current state
 The product is feature-complete for launch: prompt → film, quick clips, Basic subscription ($20/month through Lemon
 Squeezy, monthly plan credit plus top-ups), 10 GB of storage per customer (kept until they delete it), content checks, billing and account pages, the
-company dashboard on `/admin`, password reset, and Terms/Privacy drafts. The launch audit and go/no-go list are in
+company dashboard on `/admin`, the ops dashboard (its own service, see below), password reset, and Terms/Privacy drafts. The launch audit and go/no-go list are in
 `docs/LAUNCH.md`. What's left is setting up accounts and inputs only the founder can provide (see "Not done yet").
 Launch good enough, then fix what customers actually hit: don't polish ahead of real use.
 
@@ -23,7 +23,10 @@ Launch good enough, then fix what customers actually hit: don't polish ahead of 
 - `engine/`: Node 22 + Hono + Postgres. Entry: `src/index.ts`; routes: `src/server.ts`; pipeline:
   `src/pipeline/*`; money: `src/billing.ts` (credit buckets, plan gate, storage quota) and `src/lemonsqueezy.ts` (payments); RunPod: `src/providers/runpod.ts`, `src/capacity.ts`.
   Quick clips: `src/pipeline/clips.ts`; content checks: `src/moderation.ts`; the company dashboard: `src/business.ts`
-  (web: `src/components/admin/CompanyDashboard.tsx`).
+  (web: `src/components/admin/CompanyDashboard.tsx`). The ops dashboard is its own read-only service (`node dist/ops.js`,
+  admins only): server `src/ops.ts` + `src/ops/*` (one report per page; pure rules and maths in `src/ops/stats.ts`),
+  web `web/src/ops` (a second page, `web/ops/index.html`). The engine records what it reads in `src/telemetry.ts`
+  (migration 009: request stats, active days, health snapshots, stage events, content-check verdicts, webhooks).
   Migrations in `db/migrations` (applied on boot, append-only). The story engine (pitch → choose → bible → scene cards
   → scenes → critique → rewrites → breakdown → direction → shots) is described in `docs/STORY-ENGINE.md`: one small,
   checked job per call so a cheaper model still writes well. Prompts in `src/pipeline/prompts.ts`, answer shapes in
@@ -53,6 +56,7 @@ npm --prefix web run typecheck && npm --prefix web run lint && npm --prefix web 
 DATABASE_URL=postgres://postgres@localhost:5432/<db> npm --prefix engine run e2e          # step-by-step pipeline
 DATABASE_URL=postgres://postgres@localhost:5432/<db> npm --prefix engine run e2e:vibe     # prompt → paid film
 DATABASE_URL=postgres://postgres@localhost:5432/<db> npm --prefix engine run e2e:runpod   # RunPod path + scaling
+DATABASE_URL=postgres://postgres@localhost:5432/<db> npm --prefix engine run e2e:ops      # telemetry + every ops report
 python gpu-worker/selftest.py && python gpu-worker/test_h3.py
 ```
 
@@ -61,7 +65,8 @@ python gpu-worker/selftest.py && python gpu-worker/test_h3.py
 localhost:5173. You're signed in as a dev user, and everything is mocked with no keys needed. The engine
 refuses to boot with these flags when `NODE_ENV=production`. Credits, the plan gate and the storage quota are
 off unless `ENFORCE_CREDITS=1`. To try billing locally, set it with the `LEMONSQUEEZY_*` variables and send
-signed webhooks yourself, like `engine/test/vibe.e2e.ts` does.
+signed webhooks yourself, like `engine/test/vibe.e2e.ts` does. The ops dashboard: also `npm run dev:ops` (port 8790),
+then open localhost:5173/ops/ (the dev user is an admin while `ADMIN_USER_IDS` is empty).
 
 Real providers on a laptop (Anthropic, MiniMax, your RunPod H3 through a tunnel): `docs/LOCAL.md`, `engine/env.local.sample`,
 `npm --prefix engine run local` and `preflight:local`.
