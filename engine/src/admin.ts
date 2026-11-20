@@ -63,8 +63,11 @@ async function customer(ownerId: string) {
 }
 
 /** Everything support needs about one customer. */
-admin.get('/customers/:id', async (c) => {
-  const a = await customer(c.req.param('id'));
+admin.get('/customers/:id', async (c) => c.json(plain(await customerDetail(c.req.param('id')))));
+
+/** One customer's plan, credits, storage, subscriptions, credit ledger, payments and films (also used by the ops dashboard). */
+export async function customerDetail(ownerId: string) {
+  const a = await customer(ownerId);
   const id = a.owner_id;
   const [credits, plan, used, subscriptions, events, payments, projects] = await Promise.all([
     balances(id), planOf(id), storageUsed(id),
@@ -78,11 +81,11 @@ admin.get('/customers/:id', async (c) => {
           + (select coalesce(sum(hold_usd) filter (where status <> 'failed'), 0) from takes t where t.project_id = p.id))::float charged_usd
       from projects p where p.owner_id = ${id} order by p.updated_at desc limit 50`,
   ]);
-  return c.json(plain({
+  return {
     customer: a, credits, plan, storage: { used_bytes: used, quota_bytes: storageQuotaBytes() },
     subscriptions, credit_events: events, payments, projects,
-  }));
-});
+  };
+}
 
 /** Give credit (goodwill, a refund done by hand) or take it back. Top-up credit only: it never expires. */
 admin.post('/customers/:id/credit', async (c) => {

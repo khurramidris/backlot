@@ -8,6 +8,7 @@ import { submitTake, pollTake, takeFailedHook, queueRender } from './pipeline/re
 import { assembleCut } from './pipeline/assemble.js';
 import { runAutopilot, autopilotFailed } from './pipeline/autopilot.js';
 import { capacityTick } from './capacity.js';
+import { snapshotTick } from './telemetry.js';
 import { sql } from './db.js';
 import { config } from './config.js';
 import { paidForProject } from './billing.js';
@@ -50,4 +51,5 @@ export function registerJobs() {
   register('project.autopilot', (p, ctx) => runAutopilot(p.projectId, ctx));
   register('project.autopilot:failed', autopilotFailed);
   register('system.capacity', () => capacityTick());
+  register('system.snapshot', () => snapshotTick());
 }

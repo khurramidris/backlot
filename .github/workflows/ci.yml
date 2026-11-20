@@ -35,6 +35,8 @@ jobs:
         run: createdb vibe && DATABASE_URL=postgres://postgres@localhost:5432/vibe PORT=8802 npx tsx test/vibe.e2e.ts
       - name: Video on RunPod (fake endpoint), scaling, cancel
         run: createdb runpod && DATABASE_URL=postgres://postgres@localhost:5432/runpod PORT=8803 npx tsx test/runpod.e2e.ts
+      - name: Ops dashboard (what the engine records, every report, admins only)
+        run: createdb ops && DATABASE_URL=postgres://postgres@localhost:5432/ops PORT=8804 npx tsx test/ops.e2e.ts
 
   web:
     runs-on: ubuntu-latest

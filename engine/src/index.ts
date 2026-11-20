@@ -8,11 +8,14 @@ import { startCapacityController } from './capacity.js';
 import { startWorker } from './queue.js';
 import { app } from './server.js';
 import { initMonitoring } from './monitoring.js';
+import { flushTelemetry, startSnapshots, startTelemetry } from './telemetry.js';
 
 await initMonitoring();
 if (config.autoMigrate) await migrate();
 registerJobs();
 await startCapacityController();
+await startSnapshots();
+startTelemetry();
 const worker = config.runWorker ? startWorker() : null;
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (i) => console.log(`[api] listening on :${i.port}${config.mock ? ' (MOCK PROVIDERS)' : ''}`));
 // A deploy stops this process: take no new work, give running jobs a moment to finish. Anything still running is
@@ -21,5 +24,6 @@ for (const s of ['SIGINT', 'SIGTERM'] as const) process.once(s, async () => {
   console.log(`[api] ${s}: stopping`);
   server.close();
   await worker?.stop(20_000);
+  await flushTelemetry();
   process.exit(0);
 });
